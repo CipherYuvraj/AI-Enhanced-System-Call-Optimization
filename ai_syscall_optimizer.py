@@ -2,15 +2,17 @@ import os
 import time
 import json
 import threading
-import multiprocessing
 import numpy as np
 from typing import Dict, List, Any
 from dataclasses import dataclass, asdict
 import pickle
+from flask import Flask, jsonify, render_template
+
+# Flask app setup
+app = Flask(__name__)
 
 @dataclass
 class SyscallPerformanceRecord:
-    """Structured performance record for system calls"""
     name: str
     average_time: float
     execution_count: int
@@ -55,19 +57,20 @@ class AISystemCallOptimizer:
     
     def generate_optimization_strategy(self) -> List[Dict[str, Any]]:
         recommendations = []
-        for syscall, record in self.performance_records.items():
-            if record.average_time > self.performance_threshold:
-                recommendation = {
-                    "syscall": syscall,
-                    "current_performance": record.average_time,
-                    "recommendation_type": self._get_recommendation_type(record),
-                    "suggested_action": self._generate_mitigation_strategy(record)
-                }
-                recommendations.append(recommendation)
-        self.optimization_history.append({
-            "timestamp": time.time(),
-            "recommendations": recommendations
-        })
+        with self.lock:
+            for syscall, record in self.performance_records.items():
+                if record.average_time > self.performance_threshold:
+                    recommendation = {
+                        "syscall": syscall,
+                        "current_performance": record.average_time,
+                        "recommendation_type": self._get_recommendation_type(record),
+                        "suggested_action": self._generate_mitigation_strategy(record)
+                    }
+                    recommendations.append(recommendation)
+            self.optimization_history.append({
+                "timestamp": time.time(),
+                "recommendations": recommendations
+            })
         return recommendations
     
     def _get_recommendation_type(self, record: SyscallPerformanceRecord) -> str:
@@ -88,21 +91,9 @@ class AISystemCallOptimizer:
         strategy_index = int(self.learning_rate * len(strategies)) % len(strategies)
         return strategies[strategy_index]
     
-    def save_performance_model(self, filename: str = 'syscall_performance_model.pkl'):
-        with open(filename, 'wb') as f:
-            pickle.dump({
-                'performance_records': self.performance_records,
-                'optimization_history': self.optimization_history
-            }, f)
-    
-    def load_performance_model(self, filename: str = 'syscall_performance_model.pkl'):
-        try:
-            with open(filename, 'rb') as f:
-                model_data = pickle.load(f)
-                self.performance_records = model_data['performance_records']
-                self.optimization_history = model_data['optimization_history']
-        except FileNotFoundError:
-            print("No previous performance model found.")
+    def get_performance_data(self):
+        with self.lock:
+            return {k: asdict(v) for k, v in self.performance_records.items()}
 
 class SyscallMonitor:
     def __init__(self, optimizer: AISystemCallOptimizer):
@@ -121,31 +112,45 @@ class SyscallMonitor:
                 raise
         return wrapper
 
-def monitoring_thread():
-    syscall_optimizer = AISystemCallOptimizer()
-    syscall_monitor = SyscallMonitor(syscall_optimizer)
-    while True:
-        recommendations = syscall_optimizer.generate_optimization_strategy()
-        if recommendations:
-            print("Optimization Recommendations:")
-            for rec in recommendations:
-                print(f"- {rec['syscall']}: {rec['suggested_action']}")
-        time.sleep(60)
+# Global optimizer instance
+syscall_optimizer = AISystemCallOptimizer()
+syscall_monitor = SyscallMonitor(syscall_optimizer)
 
+# Simulated system call
 def simulate_read(size):
     time.sleep(np.random.uniform(0.01, 0.1))
     return os.urandom(size)
 
-def main():
-    syscall_optimizer = AISystemCallOptimizer(performance_threshold=0.05, learning_rate=0.1)
-    syscall_monitor = SyscallMonitor(syscall_optimizer)
+# Flask routes
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/performance')
+def get_performance():
+    return jsonify(syscall_optimizer.get_performance_data())
+
+@app.route('/recommendations')
+def get_recommendations():
+    return jsonify(syscall_optimizer.generate_optimization_strategy())
+
+def monitoring_thread():
+    while True:
+        syscall_optimizer.generate_optimization_strategy()  # Keep history updated
+        time.sleep(10)  # Check every 10 seconds for demo purposes
+
+def simulation_thread():
     wrapped_read = syscall_monitor.intercept_syscall('read', simulate_read)
-    monitoring_thread_obj = threading.Thread(target=monitoring_thread, daemon=True)
-    monitoring_thread_obj.start()
-    print("AI-Enhanced System Call Optimizer Initialized")
-    for _ in range(100):
+    while True:
         wrapped_read(1024)
         time.sleep(0.1)
 
 if __name__ == "__main__":
-    main()
+    # Start threads
+    monitor_thread = threading.Thread(target=monitoring_thread, daemon=True)
+    sim_thread = threading.Thread(target=simulation_thread, daemon=True)
+    monitor_thread.start()
+    sim_thread.start()
+    
+    print("Starting Flask server...")
+    app.run(debug=True, host='0.0.0.0', port=5000)
