@@ -43,6 +43,9 @@
                             <th class="px-6 py-3 text-left text-xs font-medium text-tech-blue uppercase tracking-wider">Executions</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-tech-blue uppercase tracking-wider">Variance</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-tech-blue uppercase tracking-wider">Peak Perf (s)</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-tech-blue uppercase tracking-wider">CPU Impact (%)</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-tech-blue uppercase tracking-wider">Memory Impact (%)</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-tech-blue uppercase tracking-wider">Disk I/O Impact (%)</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-[#233554]"></tbody>
@@ -74,10 +77,14 @@
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-tech-light">${record.execution_count}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-tech-blue">${record.variance.toFixed(4)}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-tech-blue">${record.peak_performance.toFixed(4)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-tech-blue">${(record.resource_impact.cpu_percent || 0).toFixed(2)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-tech-blue">${(record.resource_impact.memory_percent || 0).toFixed(2)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-tech-blue">${(record.resource_impact.disk_io_percent || 0).toFixed(2)}</td>
                         `;
                         tbody.appendChild(row);
                     }
-                });
+                })
+                .catch(error => console.error('Error fetching performance data:', error));
         }
 
         function updateRecommendations() {
@@ -96,10 +103,17 @@
                             </div>
                             <p class="mt-2 text-sm text-tech-light">${rec.suggested_action}</p>
                             <div class="mt-2 text-xs text-tech-blue">Performance: ${rec.current_performance.toFixed(4)}s</div>
+                            <div class="mt-1 text-xs text-tech-light">
+                                Resource Impact: 
+                                CPU: ${(rec.resource_impact.cpu_percent || 0).toFixed(2)}%, 
+                                Memory: ${(rec.resource_impact.memory_percent || 0).toFixed(2)}%, 
+                                Disk I/O: ${(rec.resource_impact.disk_io_percent || 0).toFixed(2)}%
+                            </div>
                         `;
                         ul.appendChild(li);
                     });
-                });
+                })
+                .catch(error => console.error('Error fetching recommendations:', error));
         }
 
         // Update every 5 seconds

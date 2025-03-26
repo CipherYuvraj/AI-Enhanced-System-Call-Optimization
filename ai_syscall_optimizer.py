@@ -5,7 +5,7 @@ import threading
 import numpy as np
 from typing import Dict, List, Any
 from dataclasses import dataclass, asdict
-import pickle
+import psutil
 from flask import Flask, jsonify, render_template
 
 # Flask app setup
@@ -19,6 +19,7 @@ class SyscallPerformanceRecord:
     variance: float
     peak_performance: float
     last_optimized: float
+    resource_impact: Dict[str, float]
 
 class AISystemCallOptimizer:
     def __init__(self, performance_threshold: float = 0.05, learning_rate: float = 0.1):
@@ -27,9 +28,25 @@ class AISystemCallOptimizer:
         self.performance_threshold = performance_threshold
         self.learning_rate = learning_rate
         self.lock = threading.Lock()
+        self.global_resource_baseline = self._capture_system_resources()
+    
+    def _capture_system_resources(self) -> Dict[str, float]:
+        """Capture current system resource utilization."""
+        # Note: psutil.disk_io_counters() has no .percent; using disk_usage as a proxy
+        return {
+            'cpu_percent': psutil.cpu_percent(interval=0.1),
+            'memory_percent': psutil.virtual_memory().percent,
+            'disk_io_percent': psutil.disk_usage('/').percent  # Adjusted metric
+        }
     
     def record_syscall_performance(self, syscall_name: str, execution_time: float):
         with self.lock:
+            current_resources = self._capture_system_resources()
+            resource_impact = {
+                k: max(0, current_resources[k] - self.global_resource_baseline.get(k, 0))
+                for k in current_resources
+            }
+            
             if syscall_name not in self.performance_records:
                 self.performance_records[syscall_name] = SyscallPerformanceRecord(
                     name=syscall_name,
@@ -37,7 +54,8 @@ class AISystemCallOptimizer:
                     execution_count=1,
                     variance=0,
                     peak_performance=execution_time,
-                    last_optimized=time.time()
+                    last_optimized=time.time(),
+                    resource_impact=resource_impact
                 )
             else:
                 record = self.performance_records[syscall_name]
@@ -45,36 +63,51 @@ class AISystemCallOptimizer:
                 new_average = (
                     record.average_time * record.execution_count + execution_time
                 ) / total_executions
-                variance = np.var([record.average_time, execution_time])
+                variance = np.var([record.average_time, execution_time])  # Simplified variance
+                
+                aggregated_impact = {
+                    k: (record.resource_impact.get(k, 0) * record.execution_count + 
+                        resource_impact.get(k, 0)) / total_executions
+                    for k in set(record.resource_impact) | set(resource_impact)
+                }
+                
                 self.performance_records[syscall_name] = SyscallPerformanceRecord(
                     name=syscall_name,
                     average_time=new_average,
                     execution_count=total_executions,
                     variance=variance,
                     peak_performance=min(record.peak_performance, execution_time),
-                    last_optimized=record.last_optimized
+                    last_optimized=record.last_optimized,
+                    resource_impact=aggregated_impact
                 )
     
     def generate_optimization_strategy(self) -> List[Dict[str, Any]]:
         recommendations = []
         with self.lock:
             for syscall, record in self.performance_records.items():
-                if record.average_time > self.performance_threshold:
+                if (record.average_time > self.performance_threshold or 
+                    any(impact > 50 for impact in record.resource_impact.values())):
                     recommendation = {
                         "syscall": syscall,
                         "current_performance": record.average_time,
                         "recommendation_type": self._get_recommendation_type(record),
-                        "suggested_action": self._generate_mitigation_strategy(record)
+                        "suggested_action": self._generate_mitigation_strategy(record),
+                        "resource_impact": record.resource_impact
                     }
                     recommendations.append(recommendation)
+            
             self.optimization_history.append({
                 "timestamp": time.time(),
+                "system_resources": self._capture_system_resources(),
                 "recommendations": recommendations
             })
         return recommendations
     
     def _get_recommendation_type(self, record: SyscallPerformanceRecord) -> str:
-        if record.variance > record.average_time * 0.5:
+        high_resource_impact = any(impact > 50 for impact in record.resource_impact.values())
+        if high_resource_impact:
+            return "CRITICAL_RESOURCE_BOTTLENECK"
+        elif record.variance > record.average_time * 0.5:
             return "HIGH_VARIABILITY"
         elif record.average_time > self.performance_threshold * 2:
             return "SEVERE_PERFORMANCE_ISSUE"
@@ -83,43 +116,32 @@ class AISystemCallOptimizer:
     
     def _generate_mitigation_strategy(self, record: SyscallPerformanceRecord) -> str:
         strategies = [
-            f"Implement caching mechanism for {record.name}",
-            f"Consider batching {record.name} calls",
-            f"Optimize resource allocation for {record.name}",
-            f"Parallelize {record.name} execution path"
+            f"Implement advanced caching for {record.name}",
+            f"Optimize memory allocation for {record.name}",
+            f"Implement adaptive batching for {record.name}",
+            f"Create intelligent parallelization strategy for {record.name}",
+            f"Apply machine learning-based optimization for {record.name}"
         ]
-        strategy_index = int(self.learning_rate * len(strategies)) % len(strategies)
+        resource_weights = {
+            'cpu_percent': record.resource_impact.get('cpu_percent', 0),
+            'memory_percent': record.resource_impact.get('memory_percent', 0),
+            'disk_io_percent': record.resource_impact.get('disk_io_percent', 0)
+        }
+        max_resource_type = max(resource_weights, key=resource_weights.get)
+        strategy_index = {
+            'cpu_percent': 3,
+            'memory_percent': 1,
+            'disk_io_percent': 2
+        }.get(max_resource_type, 0)
         return strategies[strategy_index]
     
-    def get_performance_data(self):
+    def get_performance_data(self) -> Dict[str, Any]:
+        """Return performance records as a dictionary."""
         with self.lock:
             return {k: asdict(v) for k, v in self.performance_records.items()}
 
-class SyscallMonitor:
-    def __init__(self, optimizer: AISystemCallOptimizer):
-        self.optimizer = optimizer
-    
-    def intercept_syscall(self, syscall_name, syscall_func):
-        def wrapper(*args, **kwargs):
-            start_time = time.perf_counter()
-            try:
-                result = syscall_func(*args, **kwargs)
-                execution_time = time.perf_counter() - start_time
-                self.optimizer.record_syscall_performance(syscall_name, execution_time)
-                return result
-            except Exception as e:
-                print(f"Error in syscall {syscall_name}: {e}")
-                raise
-        return wrapper
-
 # Global optimizer instance
 syscall_optimizer = AISystemCallOptimizer()
-syscall_monitor = SyscallMonitor(syscall_optimizer)
-
-# Simulated system call
-def simulate_read(size):
-    time.sleep(np.random.uniform(0.01, 0.1))
-    return os.urandom(size)
 
 # Flask routes
 @app.route('/')
@@ -134,23 +156,18 @@ def get_performance():
 def get_recommendations():
     return jsonify(syscall_optimizer.generate_optimization_strategy())
 
-def monitoring_thread():
-    while True:
-        syscall_optimizer.generate_optimization_strategy()  # Keep history updated
-        time.sleep(10)  # Check every 10 seconds for demo purposes
-
+# Simulation thread for testing
 def simulation_thread():
-    wrapped_read = syscall_monitor.intercept_syscall('read', simulate_read)
+    """Simulate system calls for demonstration."""
+    syscalls = ["read_file", "write_db", "compute_hash", "network_request"]
     while True:
-        wrapped_read(1024)
-        time.sleep(0.1)
+        syscall = np.random.choice(syscalls)
+        execution_time = np.random.uniform(0.01, 0.1)  # Random execution time
+        syscall_optimizer.record_syscall_performance(syscall, execution_time)
+        time.sleep(np.random.uniform(0.5, 2))  # Random delay
 
 if __name__ == "__main__":
-    # Start threads
-    monitor_thread = threading.Thread(target=monitoring_thread, daemon=True)
-    sim_thread = threading.Thread(target=simulation_thread, daemon=True)
-    monitor_thread.start()
-    sim_thread.start()
-    
-    print("Starting Flask server...")
+    # Start simulation thread
+    threading.Thread(target=simulation_thread, daemon=True).start()
+    # Run Flask app
     app.run(debug=True, host='0.0.0.0', port=5000)
