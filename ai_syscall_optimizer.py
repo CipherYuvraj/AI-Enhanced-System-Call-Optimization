@@ -35,7 +35,7 @@ class AISystemCallOptimizer:
         self.global_resource_baseline = self._capture_system_resources()
         if groq_api_key:
             self.groq_client = Groq(api_key=groq_api_key)
-            print(f"Groq client initialized with API key: {groq_api_key[:5]}...")  # Debug
+            print(f"Groq client initialized with API key: {groq_api_key[:5]}...")
         else:
             self.groq_client = None
             print("No Groq API key provided, falling back to rule-based strategy.")
@@ -180,8 +180,9 @@ Resource Impacts:
             return {k: asdict(v) for k, v in self.performance_records.items()}
 
 # Load API key and initialize optimizer
-groq_api_key = os.environ.get("GROQ_API_KEY", "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")
-print(f"Loaded Groq API Key: {groq_api_key[:5]}...")  # Debug line
+groq_api_key = os.environ.get("GROQ_API_KEY")
+if not groq_api_key:
+    print("Warning: GROQ_API_KEY not found in environment variables.")
 syscall_optimizer = AISystemCallOptimizer(groq_api_key=groq_api_key)
 
 @app.route('/')
@@ -204,6 +205,10 @@ def simulation_thread():
         syscall_optimizer.record_syscall_performance(syscall, execution_time)
         time.sleep(np.random.uniform(0.5, 2))
 
+# Start the simulation thread globally
+threading.Thread(target=simulation_thread, daemon=True).start()
+
 if __name__ == "__main__":
-    threading.Thread(target=simulation_thread, daemon=True).start()
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # For local development only (Windows or otherwise)
+    port = int(os.environ.get("PORT", 5000))  # Default to 5000 locally
+    app.run(host='0.0.0.0', port=port)
