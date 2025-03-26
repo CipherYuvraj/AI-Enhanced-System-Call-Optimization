@@ -1,12 +1,16 @@
 import os
 import time
-import json
 import threading
 import numpy as np
 from typing import Dict, List, Any
 from dataclasses import dataclass, asdict
 import psutil
 from flask import Flask, jsonify, render_template
+from groq import Groq
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Flask app setup
 app = Flask(__name__)
@@ -22,21 +26,25 @@ class SyscallPerformanceRecord:
     resource_impact: Dict[str, float]
 
 class AISystemCallOptimizer:
-    def __init__(self, performance_threshold: float = 0.05, learning_rate: float = 0.1):
+    def __init__(self, performance_threshold: float = 0.05, learning_rate: float = 0.1, groq_api_key: str = None):
         self.performance_records: Dict[str, SyscallPerformanceRecord] = {}
         self.optimization_history: List[Dict] = []
         self.performance_threshold = performance_threshold
         self.learning_rate = learning_rate
         self.lock = threading.Lock()
         self.global_resource_baseline = self._capture_system_resources()
+        if groq_api_key:
+            self.groq_client = Groq(api_key=groq_api_key)
+            print(f"Groq client initialized with API key: {groq_api_key[:5]}...")  # Debug
+        else:
+            self.groq_client = None
+            print("No Groq API key provided, falling back to rule-based strategy.")
     
     def _capture_system_resources(self) -> Dict[str, float]:
-        """Capture current system resource utilization."""
-        # Note: psutil.disk_io_counters() has no .percent; using disk_usage as a proxy
         return {
             'cpu_percent': psutil.cpu_percent(interval=0.1),
             'memory_percent': psutil.virtual_memory().percent,
-            'disk_io_percent': psutil.disk_usage('/').percent  # Adjusted metric
+            'disk_io_percent': psutil.disk_usage('/').percent
         }
     
     def record_syscall_performance(self, syscall_name: str, execution_time: float):
@@ -63,7 +71,7 @@ class AISystemCallOptimizer:
                 new_average = (
                     record.average_time * record.execution_count + execution_time
                 ) / total_executions
-                variance = np.var([record.average_time, execution_time])  # Simplified variance
+                variance = np.var([record.average_time, execution_time])
                 
                 aggregated_impact = {
                     k: (record.resource_impact.get(k, 0) * record.execution_count + 
@@ -115,6 +123,38 @@ class AISystemCallOptimizer:
             return "MODERATE_OPTIMIZATION"
     
     def _generate_mitigation_strategy(self, record: SyscallPerformanceRecord) -> str:
+        if self.groq_client:
+            prompt = f"""
+You are an AI assistant specialized in system performance optimization. Based on the following performance data for a system call, suggest a specific and concise optimization strategy to improve its performance or reduce its resource usage. Provide a brief, actionable suggestion in plain text, in one or two sentences, without code or special formatting.
+
+System Call: {record.name}
+Average Execution Time: {record.average_time:.4f} seconds
+Variance: {record.variance:.4f}
+Peak Performance: {record.peak_performance:.4f} seconds
+Resource Impacts:
+- CPU: {record.resource_impact.get('cpu_percent', 0):.2f}%
+- Memory: {record.resource_impact.get('memory_percent', 0):.2f}%
+- Disk I/O: {record.resource_impact.get('disk_io_percent', 0):.2f}%
+"""
+            try:
+                response = self.groq_client.chat.completions.create(
+                    model="llama3-8b-8192",
+                    messages=[
+                        {"role": "system", "content": "You are an AI assistant specialized in system performance optimization. Provide your suggestions in plain text without code or special formatting."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=75,
+                    temperature=0.7
+                )
+                suggestion = response.choices[0].message.content.strip()
+                if suggestion:
+                    suggestion = ' '.join(suggestion.split())
+                    return suggestion
+                else:
+                    print("AI returned empty suggestion, falling back to rule-based strategy.")
+            except Exception as e:
+                print(f"Error generating strategy with Groq API: {e}")
+
         strategies = [
             f"Implement advanced caching for {record.name}",
             f"Optimize memory allocation for {record.name}",
@@ -136,14 +176,14 @@ class AISystemCallOptimizer:
         return strategies[strategy_index]
     
     def get_performance_data(self) -> Dict[str, Any]:
-        """Return performance records as a dictionary."""
         with self.lock:
             return {k: asdict(v) for k, v in self.performance_records.items()}
 
-# Global optimizer instance
-syscall_optimizer = AISystemCallOptimizer()
+# Load API key and initialize optimizer
+groq_api_key = os.environ.get("GROQ_API_KEY", "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")
+print(f"Loaded Groq API Key: {groq_api_key[:5]}...")  # Debug line
+syscall_optimizer = AISystemCallOptimizer(groq_api_key=groq_api_key)
 
-# Flask routes
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -156,18 +196,14 @@ def get_performance():
 def get_recommendations():
     return jsonify(syscall_optimizer.generate_optimization_strategy())
 
-# Simulation thread for testing
 def simulation_thread():
-    """Simulate system calls for demonstration."""
     syscalls = ["read_file", "write_db", "compute_hash", "network_request"]
     while True:
         syscall = np.random.choice(syscalls)
-        execution_time = np.random.uniform(0.01, 0.1)  # Random execution time
+        execution_time = np.random.uniform(0.01, 0.1)
         syscall_optimizer.record_syscall_performance(syscall, execution_time)
-        time.sleep(np.random.uniform(0.5, 2))  # Random delay
+        time.sleep(np.random.uniform(0.5, 2))
 
 if __name__ == "__main__":
-    # Start simulation thread
     threading.Thread(target=simulation_thread, daemon=True).start()
-    # Run Flask app
     app.run(debug=True, host='0.0.0.0', port=5000)

@@ -101,7 +101,7 @@
                                 <span class="text-tech-blue font-semibold">${rec.syscall}</span>
                                 <span class="text-xs text-tech-light bg-[#0a192f] px-2 py-1 rounded">${rec.recommendation_type}</span>
                             </div>
-                            <p class="mt-2 text-sm text-tech-light">${rec.suggested_action}</p>
+                            <p class="mt-2 text-sm text-tech-light break-words">${rec.suggested_action}</p>
                             <div class="mt-2 text-xs text-tech-blue">Performance: ${rec.current_performance.toFixed(4)}s</div>
                             <div class="mt-1 text-xs text-tech-light">
                                 Resource Impact: 
@@ -116,11 +116,8 @@
                 .catch(error => console.error('Error fetching recommendations:', error));
         }
 
-        // Update every 5 seconds
         setInterval(updatePerformance, 5000);
         setInterval(updateRecommendations, 5000);
-
-        // Initial load
         updatePerformance();
         updateRecommendations();
     </script>
