@@ -4,28 +4,60 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI System Call Optimizer</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'tech-dark': '#0a192f',
+                        'tech-blue': '#64ffda',
+                        'tech-light': '#8892b0',
+                    }
+                }
+            }
+        }
+    </script>
 </head>
-<body>
-    <h1>AI System Call Optimizer Dashboard</h1>
-    
-    <h2>Performance Metrics</h2>
-    <table id="performance-table">
-        <thead>
-            <tr>
-                <th>System Call</th>
-                <th>Avg Time (s)</th>
-                <th>Executions</th>
-                <th>Variance</th>
-                <th>Peak Perf (s)</th>
-            </tr>
-        </thead>
-        <tbody></tbody>
-    </table>
-    
-    <h2>Optimization Recommendations</h2>
-    <ul id="recommendations-list"></ul>
-    
+<body class="bg-tech-dark text-tech-light font-mono antialiased">
+    <div class="container mx-auto px-4 py-8">
+        <header class="mb-12 text-center">
+            <h1 class="text-4xl font-bold text-tech-blue mb-4 tracking-wide">
+                AI System Call Optimizer
+            </h1>
+            <p class="text-xl text-tech-light opacity-80">
+                Real-time Performance Monitoring and Optimization
+            </p>
+        </header>
+
+        <section class="mb-12">
+            <h2 class="text-2xl text-tech-blue mb-6 border-b-2 border-tech-blue pb-2">
+                Performance Metrics
+            </h2>
+            <div class="bg-[#112240] rounded-lg shadow-xl overflow-hidden">
+                <table class="w-full" id="performance-table">
+                    <thead class="bg-[#0a192f]">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-tech-blue uppercase tracking-wider">System Call</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-tech-blue uppercase tracking-wider">Avg Time (s)</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-tech-blue uppercase tracking-wider">Executions</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-tech-blue uppercase tracking-wider">Variance</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-tech-blue uppercase tracking-wider">Peak Perf (s)</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-[#233554]"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section>
+            <h2 class="text-2xl text-tech-blue mb-6 border-b-2 border-tech-blue pb-2">
+                Optimization Recommendations
+            </h2>
+            <ul id="recommendations-list" class="space-y-4"></ul>
+        </section>
+    </div>
+
     <script>
         function updatePerformance() {
             fetch('/performance')
@@ -35,12 +67,13 @@
                     tbody.innerHTML = '';
                     for (const [syscall, record] of Object.entries(data)) {
                         const row = document.createElement('tr');
+                        row.classList.add('hover:bg-[#233554]', 'transition-colors', 'duration-200');
                         row.innerHTML = `
-                            <td>${record.name}</td>
-                            <td>${record.average_time.toFixed(4)}</td>
-                            <td>${record.execution_count}</td>
-                            <td>${record.variance.toFixed(4)}</td>
-                            <td>${record.peak_performance.toFixed(4)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-tech-light">${record.name}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-tech-blue">${record.average_time.toFixed(4)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-tech-light">${record.execution_count}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-tech-blue">${record.variance.toFixed(4)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-tech-blue">${record.peak_performance.toFixed(4)}</td>
                         `;
                         tbody.appendChild(row);
                     }
@@ -55,7 +88,15 @@
                     ul.innerHTML = '';
                     data.forEach(rec => {
                         const li = document.createElement('li');
-                        li.textContent = `${rec.syscall}: ${rec.suggested_action} (Type: ${rec.recommendation_type}, Perf: ${rec.current_performance.toFixed(4)}s)`;
+                        li.classList.add('bg-[#112240]', 'p-4', 'rounded-lg', 'shadow-md', 'border', 'border-[#233554]');
+                        li.innerHTML = `
+                            <div class="flex justify-between items-center">
+                                <span class="text-tech-blue font-semibold">${rec.syscall}</span>
+                                <span class="text-xs text-tech-light bg-[#0a192f] px-2 py-1 rounded">${rec.recommendation_type}</span>
+                            </div>
+                            <p class="mt-2 text-sm text-tech-light">${rec.suggested_action}</p>
+                            <div class="mt-2 text-xs text-tech-blue">Performance: ${rec.current_performance.toFixed(4)}s</div>
+                        `;
                         ul.appendChild(li);
                     });
                 });
@@ -64,7 +105,7 @@
         // Update every 5 seconds
         setInterval(updatePerformance, 5000);
         setInterval(updateRecommendations, 5000);
-        
+
         // Initial load
         updatePerformance();
         updateRecommendations();
