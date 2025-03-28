@@ -39,14 +39,14 @@ class AISystemCallOptimizer:
         else:
             self.groq_client = None
             print("No Groq API key provided, falling back to rule-based strategy.")
-    
+
     def _capture_system_resources(self) -> Dict[str, float]:
         return {
             'cpu_percent': psutil.cpu_percent(interval=0.1),
             'memory_percent': psutil.virtual_memory().percent,
             'disk_io_percent': psutil.disk_usage('/').percent
         }
-    
+
     def record_syscall_performance(self, syscall_name: str, execution_time: float):
         with self.lock:
             current_resources = self._capture_system_resources()
@@ -54,7 +54,7 @@ class AISystemCallOptimizer:
                 k: max(0, current_resources[k] - self.global_resource_baseline.get(k, 0))
                 for k in current_resources
             }
-            
+
             if syscall_name not in self.performance_records:
                 self.performance_records[syscall_name] = SyscallPerformanceRecord(
                     name=syscall_name,
@@ -72,13 +72,13 @@ class AISystemCallOptimizer:
                     record.average_time * record.execution_count + execution_time
                 ) / total_executions
                 variance = np.var([record.average_time, execution_time])
-                
+
                 aggregated_impact = {
-                    k: (record.resource_impact.get(k, 0) * record.execution_count + 
+                    k: (record.resource_impact.get(k, 0) * record.execution_count +
                         resource_impact.get(k, 0)) / total_executions
                     for k in set(record.resource_impact) | set(resource_impact)
                 }
-                
+
                 self.performance_records[syscall_name] = SyscallPerformanceRecord(
                     name=syscall_name,
                     average_time=new_average,
@@ -88,12 +88,12 @@ class AISystemCallOptimizer:
                     last_optimized=record.last_optimized,
                     resource_impact=aggregated_impact
                 )
-    
+
     def generate_optimization_strategy(self) -> List[Dict[str, Any]]:
         recommendations = []
         with self.lock:
             for syscall, record in self.performance_records.items():
-                if (record.average_time > self.performance_threshold or 
+                if (record.average_time > self.performance_threshold or
                     any(impact > 50 for impact in record.resource_impact.values())):
                     recommendation = {
                         "syscall": syscall,
@@ -103,14 +103,14 @@ class AISystemCallOptimizer:
                         "resource_impact": record.resource_impact
                     }
                     recommendations.append(recommendation)
-            
+
             self.optimization_history.append({
                 "timestamp": time.time(),
                 "system_resources": self._capture_system_resources(),
                 "recommendations": recommendations
             })
         return recommendations
-    
+
     def _get_recommendation_type(self, record: SyscallPerformanceRecord) -> str:
         high_resource_impact = any(impact > 50 for impact in record.resource_impact.values())
         if high_resource_impact:
@@ -121,7 +121,7 @@ class AISystemCallOptimizer:
             return "SEVERE_PERFORMANCE_ISSUE"
         else:
             return "MODERATE_OPTIMIZATION"
-    
+
     def _generate_mitigation_strategy(self, record: SyscallPerformanceRecord) -> str:
         if self.groq_client:
             prompt = f"""
@@ -174,7 +174,7 @@ Resource Impacts:
             'disk_io_percent': 2
         }.get(max_resource_type, 0)
         return strategies[strategy_index]
-    
+
     def get_performance_data(self) -> Dict[str, Any]:
         with self.lock:
             return {k: asdict(v) for k, v in self.performance_records.items()}
@@ -210,5 +210,5 @@ threading.Thread(target=simulation_thread, daemon=True).start()
 
 if __name__ == "__main__":
     # For local development only (Windows or otherwise)
-    port = int(os.environ.get("PORT", 5000))  # Default to 5000 locally
+    port = int(os.environ.get("PORT", 5001))  # Default to 5000 locally
     app.run(host='0.0.0.0', port=port)
