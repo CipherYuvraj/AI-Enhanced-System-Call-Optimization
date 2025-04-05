@@ -1,111 +1,53 @@
 # AI System Call Optimizer
 
-## Overview
 
-The AI System Call Optimizer is a sophisticated Python-based application that provides real-time performance monitoring and intelligent optimization recommendations for system calls. Leveraging advanced machine learning techniques and system resource tracking, this tool helps developers and system administrators identify and mitigate performance bottlenecks.
+![Performance-Metrics](./static/images/Screenshot%20from%202025-04-05%2014-50-08.png)
+![Interface](./static/images/Screenshot%20from%202025-04-05%2014-50-20.png)
+![Optimization-Recommendations](./static/images/Screenshot%20from%202025-04-05%2014-50-23.png)
+
+A real-time system call monitoring and optimization tool enhanced with AI capabilities. This project leverages eBPF for system call monitoring, the Groq API for AI-driven optimization strategies, and Flask for an interactive web interface. It analyzes performance metrics like execution time and resource impact to suggest optimizations for resource-intensive system calls.
+
+## Table of Contents
+
+- [Features](#features)
+- [System Requirements](#system-requirements)
+- [Installation](#installation)
+- [Usage](#usage)
+- [API Endpoints](#api-endpoints)
+- [Configuration](#configuration)
+- [Performance Considerations](#performance-considerations)
+- [Security](#security)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Features
 
-- **Real-time Performance Tracking**: Continuously monitors system call performance metrics
-- **AI-Powered Optimization Recommendations**:
-  - Uses Groq's AI to generate intelligent optimization strategies
-  - Fallback rule-based strategy when AI is unavailable
-- **Resource Impact Analysis**:
-  - Tracks CPU, memory, and disk I/O resource utilization
-  - Identifies critical resource bottlenecks
-- **Web Dashboard**:
-  - Interactive visualization of performance metrics
-  - Dynamic optimization recommendations
-- **Flexible Configuration**:
-  - Configurable performance thresholds
-  - Supports custom learning rates
+- **Real-time Monitoring**: Uses eBPF to capture system call events as they occur.
+- **Performance Metrics**: Tracks execution time, CPU impact, memory impact, and disk I/O usage.
+- **System Call Categorization**: Groups system calls into categories such as:
+  - File I/O (e.g., `read`, `write`, `open`)
+  - Memory (e.g., `mmap`, `mprotect`)
+  - Process (e.g., `fork`, `execve`)
+  - And more (Signal, IPC, Synchronization, etc.).
+- **AI-Enhanced Optimization**: Generates strategies using the Groq API for high-performance system calls.
+- **Rule-Based Fallback**: Provides optimization suggestions when the Groq API is unavailable.
+- **Web Interface**: Built with Flask, offering visualization, filtering, and search capabilities.
+- **Resource Impact Visualization**: Displays CPU, memory, and disk I/O impacts with color-coded bars.
+- **Example Recommendations**:
+  - For `select` (high CPU impact): "Consider using epoll instead of select for better scalability."
+  - For `write` (File I/O): "Implement buffered I/O to reduce the frequency of write system calls."
 
-## Technologies Used
+## System Requirements
 
-- **Backend**:
-  - Python
-  - Flask
-  - Threading
-  - NumPy
-  - psutil
-- **AI Integration**:
-  - Groq API
-  - Llama3-8b Model
-- **Frontend**:
-  - Tailwind CSS
-  - Vanilla JavaScript
-- **Environment**:
-  - python-dotenv
-
-## Prerequisites
-
-- Python 3.8+
-- Groq API Key (optional but recommended)
-- pip package manager
+- **Operating System**: Linux with eBPF support (kernel version 4.1 or later recommended).
+- **BCC**: BPF Compiler Collection installed for eBPF functionality.
+- **Python**: Version 3.6 or later.
 
 ## Installation
 
-1. Clone the repository:
-```bash
-git clone https://github.com/CipherYuvraj/AI-Enhanced-System-Call-Optimization.git
-cd AI-Enhanced-System-Call-Optimization
-```
+Follow these steps to set up the AI System Call Optimizer on your system:
 
-2. Create a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
-```
-
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-4. Set up environment variables:
-```bash
-cp .env.example .env
-# Edit .env and add your Groq API key
-```
-
-## Running the Application
-
-```bash
-python app.py
-```
-
-Navigate to `http://localhost:5000` to view the dashboard.
-
-## Configuration
-
-### Performance Threshold
-Adjust the performance threshold in `AISystemCallOptimizer` initialization:
-```python
-syscall_optimizer = AISystemCallOptimizer(
-    performance_threshold=0.05,  # Adjust as needed
-    learning_rate=0.1
-)
-```
-
-## Dashboard Screenshots
-
-![Performance Metrics](./static/images/Screenshot%202025-03-28%20at%2012.14.00 PM.png)
-![Optimization Recommendations](./static/images/Screenshot%202025-03-28%20at%2012.18.54 PM.png)
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## License
-
-Distributed under the MIT License. See `LICENSE` for more information.
-
-## Contact
-
-Your Name - [parvaggarwal130@gmail.com](mailto:parvaggarwal130@gmail.com)
-
-Project Link: [https://github.com/CipherYuvraj/AI-Enhanced-System-Call-Optimization.git](https://github.com/CipherYuvraj/AI-Enhanced-System-Call-Optimization.git)
+1. **Clone the Repository**:
+   ```bash
+   git clone https://github.com/yourusername/ai-system-call-optimizer.git
+   cd ai-system-call-optimizer
