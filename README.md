@@ -74,7 +74,7 @@ cp .env.example .env
 python app.py
 ```
 
-Navigate to `http://localhost:5001` to view the dashboard.
+Navigate to `http://localhost:5000` to view the dashboard.
 
 ## Configuration
 

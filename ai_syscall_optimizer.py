@@ -5,7 +5,7 @@ import numpy as np
 from typing import Dict, List, Any
 from dataclasses import dataclass, asdict
 import psutil
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
 from groq import Groq
 from dotenv import load_dotenv
 from bcc import BPF
@@ -25,16 +25,78 @@ class SyscallPerformanceRecord:
     peak_performance: float
     last_optimized: float
     resource_impact: Dict[str, float]
+    category: str  # Added category field for better organization
 
 class AISystemCallOptimizer:
     def __init__(self, performance_threshold: float = 0.05, learning_rate: float = 0.1, groq_api_key: str = None):
         self.performance_records: Dict[str, SyscallPerformanceRecord] = {}
         self.optimization_history: List[Dict] = []
+        self.recommendations_dict: Dict[str, str] = {}  # Store recommendations for each syscall
         self.performance_threshold = performance_threshold
         self.learning_rate = learning_rate
         self.lock = threading.Lock()
         self.global_resource_baseline = self._capture_system_resources()
-        self.syscall_map = {0: "read", 1: "write", 2: "open", 3: "close"}  # Simplified; expand as needed
+        
+        # Expanded syscall map with categories
+        self.syscall_map = {
+            # File operations
+            0: {"name": "read", "category": "File I/O"},
+            1: {"name": "write", "category": "File I/O"},
+            2: {"name": "open", "category": "File I/O"},
+            3: {"name": "close", "category": "File I/O"},
+            4: {"name": "stat", "category": "File I/O"},
+            5: {"name": "fstat", "category": "File I/O"},
+            6: {"name": "lstat", "category": "File I/O"},
+            8: {"name": "lseek", "category": "File I/O"},
+            9: {"name": "mmap", "category": "Memory"},
+            10: {"name": "mprotect", "category": "Memory"},
+            11: {"name": "munmap", "category": "Memory"},
+            13: {"name": "rt_sigaction", "category": "Signal"},
+            14: {"name": "rt_sigprocmask", "category": "Signal"},
+            21: {"name": "access", "category": "File I/O"},
+            22: {"name": "pipe", "category": "IPC"},
+            23: {"name": "select", "category": "I/O Multiplexing"},
+            32: {"name": "dup", "category": "File I/O"},
+            33: {"name": "dup2", "category": "File I/O"},
+            39: {"name": "getpid", "category": "Process"},
+            56: {"name": "clone", "category": "Process"},
+            57: {"name": "fork", "category": "Process"},
+            59: {"name": "execve", "category": "Process"},
+            60: {"name": "exit", "category": "Process"},
+            61: {"name": "wait4", "category": "Process"},
+            62: {"name": "kill", "category": "Signal"},
+            63: {"name": "uname", "category": "System"},
+            72: {"name": "fcntl", "category": "File I/O"},
+            78: {"name": "getdents", "category": "File I/O"},
+            79: {"name": "getcwd", "category": "File I/O"},
+            83: {"name": "mkdir", "category": "File I/O"},
+            84: {"name": "rmdir", "category": "File I/O"},
+            85: {"name": "creat", "category": "File I/O"},
+            86: {"name": "link", "category": "File I/O"},
+            87: {"name": "unlink", "category": "File I/O"},
+            89: {"name": "readlink", "category": "File I/O"},
+            90: {"name": "chmod", "category": "File I/O"},
+            92: {"name": "chown", "category": "File I/O"},
+            95: {"name": "umask", "category": "File I/O"},
+            96: {"name": "gettimeofday", "category": "Time"},
+            97: {"name": "getrlimit", "category": "Resource"},
+            102: {"name": "getuid", "category": "User"},
+            104: {"name": "getgid", "category": "User"},
+            105: {"name": "setuid", "category": "User"},
+            106: {"name": "setgid", "category": "User"},
+            118: {"name": "fsync", "category": "File I/O"},
+            137: {"name": "statfs", "category": "File System"},
+            158: {"name": "arch_prctl", "category": "Architecture"},
+            186: {"name": "gettid", "category": "Process"},
+            202: {"name": "futex", "category": "Synchronization"},
+            218: {"name": "set_tid_address", "category": "Process"},
+            228: {"name": "clock_gettime", "category": "Time"},
+            231: {"name": "exit_group", "category": "Process"},
+            257: {"name": "openat", "category": "File I/O"},
+            262: {"name": "newfstatat", "category": "File I/O"},
+            293: {"name": "pipe2", "category": "IPC"}
+        }
+
         if groq_api_key:
             self.groq_client = Groq(api_key=groq_api_key)
             print(f"Groq client initialized with API key: {groq_api_key[:5]}...")
@@ -44,6 +106,10 @@ class AISystemCallOptimizer:
         self.bpf = None
         self.start_ebpf_monitoring()
         threading.Thread(target=self.resource_monitoring_thread, daemon=True).start()
+        
+        # Set a consistent refresh interval (in seconds)
+        self.refresh_interval = 5
+        print(f"Performance data will refresh every {self.refresh_interval} seconds")
 
     def _capture_system_resources(self) -> Dict[str, float]:
         return {
@@ -58,7 +124,6 @@ class AISystemCallOptimizer:
             time.sleep(1)  # Update baseline every second
 
     def start_ebpf_monitoring(self):
-        # eBPF program to monitor system calls
         bpf_code = """
         #include <uapi/linux/ptrace.h>
 
@@ -98,9 +163,11 @@ class AISystemCallOptimizer:
 
         def process_event(cpu, data, size):
             event = self.bpf["events"].event(data)
-            syscall_name = self.syscall_map.get(event.syscall_nr, f"unknown_{event.syscall_nr}")
+            syscall_info = self.syscall_map.get(event.syscall_nr, {"name": f"unknown_{event.syscall_nr}", "category": "Unknown"})
+            syscall_name = syscall_info["name"]
+            syscall_category = syscall_info["category"]
             execution_time = event.ts / 1e9  # Convert ns to seconds
-            self.record_syscall_performance(syscall_name, execution_time)
+            self.record_syscall_performance(syscall_name, execution_time, syscall_category)
 
         self.bpf["events"].open_perf_buffer(process_event)
         threading.Thread(target=self.poll_ebpf_events, daemon=True).start()
@@ -109,7 +176,7 @@ class AISystemCallOptimizer:
         while True:
             self.bpf.perf_buffer_poll()
 
-    def record_syscall_performance(self, syscall_name: str, execution_time: float):
+    def record_syscall_performance(self, syscall_name: str, execution_time: float, category: str = "Unknown"):
         with self.lock:
             current_resources = self._capture_system_resources()
             resource_impact = {
@@ -125,7 +192,8 @@ class AISystemCallOptimizer:
                     variance=0,
                     peak_performance=execution_time,
                     last_optimized=time.time(),
-                    resource_impact=resource_impact
+                    resource_impact=resource_impact,
+                    category=category
                 )
             else:
                 record = self.performance_records[syscall_name]
@@ -148,7 +216,8 @@ class AISystemCallOptimizer:
                     variance=variance,
                     peak_performance=min(record.peak_performance, execution_time),
                     last_optimized=record.last_optimized,
-                    resource_impact=aggregated_impact
+                    resource_impact=aggregated_impact,
+                    category=record.category
                 )
 
     def generate_optimization_strategy(self) -> List[Dict[str, Any]]:
@@ -162,9 +231,13 @@ class AISystemCallOptimizer:
                         "current_performance": record.average_time,
                         "recommendation_type": self._get_recommendation_type(record),
                         "suggested_action": self._generate_mitigation_strategy(record),
-                        "resource_impact": record.resource_impact
+                        "resource_impact": record.resource_impact,
+                        "category": record.category
                     }
                     recommendations.append(recommendation)
+            
+            # Update the recommendations dictionary
+            self.recommendations_dict = {rec['syscall']: rec['suggested_action'] for rec in recommendations}
             
             self.optimization_history.append({
                 "timestamp": time.time(),
@@ -190,6 +263,7 @@ class AISystemCallOptimizer:
 You are an AI assistant specialized in system performance optimization. Based on the following performance data for a system call, suggest a specific and concise optimization strategy to improve its performance or reduce its resource usage. Provide a brief, actionable suggestion in plain text, in one or two sentences, without code or special formatting.
 
 System Call: {record.name}
+Category: {record.category}
 Average Execution Time: {record.average_time:.4f} seconds
 Variance: {record.variance:.4f}
 Peak Performance: {record.peak_performance:.4f} seconds
@@ -217,29 +291,89 @@ Resource Impacts:
             except Exception as e:
                 print(f"Error generating strategy with Groq API: {e}")
 
-        strategies = [
-            f"Implement advanced caching for {record.name}",
-            f"Optimize memory allocation for {record.name}",
-            f"Implement adaptive batching for {record.name}",
-            f"Create intelligent parallelization strategy for {record.name}",
-            f"Apply machine learning-based optimization for {record.name}"
-        ]
+        # Category-based strategies
+        category_strategies = {
+            "File I/O": [
+                f"Implement buffered I/O for {record.name} to reduce system call frequency",
+                f"Use asynchronous I/O for {record.name} operations to avoid blocking",
+                f"Consider memory-mapped files instead of direct {record.name} calls"
+            ],
+            "Memory": [
+                f"Optimize memory allocation patterns around {record.name}",
+                f"Consider using huge pages to reduce {record.name} overhead",
+                f"Implement memory pooling to reduce fragmentation in {record.name}"
+            ],
+            "Process": [
+                f"Minimize {record.name} calls through process reuse",
+                f"Use thread pools instead of frequent {record.name} calls",
+                f"Implement process caching for {record.name} operations"
+            ],
+            "Synchronization": [
+                f"Reduce lock contention around {record.name}",
+                f"Use lock-free algorithms when possible to avoid {record.name}",
+                f"Implement batching to reduce {record.name} frequency"
+            ],
+            "IPC": [
+                f"Use shared memory instead of pipes for {record.name}",
+                f"Batch messages to reduce {record.name} overhead",
+                f"Consider using zero-copy techniques for {record.name}"
+            ],
+            "Time": [
+                f"Cache time values to reduce {record.name} frequency",
+                f"Use monotonic clocks for performance-sensitive code around {record.name}",
+                f"Batch operations that require timestamp from {record.name}"
+            ]
+        }
+        
+        if record.category in category_strategies:
+            strategies = category_strategies[record.category]
+        else:
+            strategies = [
+                f"Implement advanced caching for {record.name}",
+                f"Optimize memory allocation for {record.name}",
+                f"Implement adaptive batching for {record.name}",
+                f"Create intelligent parallelization strategy for {record.name}",
+                f"Apply machine learning-based optimization for {record.name}"
+            ]
+        
         resource_weights = {
             'cpu_percent': record.resource_impact.get('cpu_percent', 0),
             'memory_percent': record.resource_impact.get('memory_percent', 0),
             'disk_io_percent': record.resource_impact.get('disk_io_percent', 0)
         }
         max_resource_type = max(resource_weights, key=resource_weights.get)
-        strategy_index = {
-            'cpu_percent': 3,
-            'memory_percent': 1,
-            'disk_io_percent': 2
-        }.get(max_resource_type, 0)
+        strategy_index = min(int(resource_weights[max_resource_type] / 20), len(strategies) - 1)
         return strategies[strategy_index]
 
     def get_performance_data(self) -> Dict[str, Any]:
         with self.lock:
-            return {k: asdict(v) for k, v in self.performance_records.items()}
+            data = {}
+            for k, v in self.performance_records.items():
+                record_dict = asdict(v)
+                record_dict['recommendation'] = self.recommendations_dict.get(k, '')
+                data[k] = record_dict
+            return data
+            
+    def get_refresh_interval(self) -> int:
+        return self.refresh_interval
+        
+    def get_syscall_categories(self) -> Dict[str, List[str]]:
+        categories = {}
+        with self.lock:
+            for syscall, record in self.performance_records.items():
+                category = record.category
+                if category not in categories:
+                    categories[category] = []
+                categories[category].append(syscall)
+        return categories
+        
+    def get_syscall_details(self, syscall_name: str) -> Dict[str, Any]:
+        with self.lock:
+            if syscall_name in self.performance_records:
+                record_dict = asdict(self.performance_records[syscall_name])
+                record_dict['recommendation'] = self.recommendations_dict.get(syscall_name, '')
+                return record_dict
+            return {"error": "System call not found"}
 
 # Load API key and initialize optimizer
 groq_api_key = os.environ.get("GROQ_API_KEY")
@@ -249,7 +383,7 @@ syscall_optimizer = AISystemCallOptimizer(groq_api_key=groq_api_key)
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', refresh_interval=syscall_optimizer.get_refresh_interval())
 
 @app.route('/performance')
 def get_performance():
@@ -258,6 +392,14 @@ def get_performance():
 @app.route('/recommendations')
 def get_recommendations():
     return jsonify(syscall_optimizer.generate_optimization_strategy())
+
+@app.route('/categories')
+def get_categories():
+    return jsonify(syscall_optimizer.get_syscall_categories())
+
+@app.route('/syscall/<syscall_name>')
+def get_syscall_details(syscall_name):
+    return jsonify(syscall_optimizer.get_syscall_details(syscall_name))
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))  # Default to 5000 locally
