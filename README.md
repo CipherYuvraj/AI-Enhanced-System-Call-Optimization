@@ -5,49 +5,153 @@
 ![Interface](./static/images/Screenshot%20from%202025-04-05%2014-50-20.png)
 ![Optimization-Recommendations](./static/images/Screenshot%20from%202025-04-05%2014-50-23.png)
 
-A real-time system call monitoring and optimization tool enhanced with AI capabilities. This project leverages eBPF for system call monitoring, the Groq API for AI-driven optimization strategies, and Flask for an interactive web interface. It analyzes performance metrics like execution time and resource impact to suggest optimizations for resource-intensive system calls.
+## 📌 Features
 
-## Table of Contents
+- 🟢 Real-time monitoring with eBPF
+- 📊 Execution time & resource metrics (CPU, memory, I/O)
+- 📁 Categorization of syscalls: File I/O, Process, Memory, IPC, etc.
+- 🤖 AI-generated optimization tips (Groq API)
+- 🛠️ Rule-based fallback suggestions
+- 🌐 Clean Flask web UI with auto-refresh
+- 🔍 API endpoints for programmatic access
 
-- [Features](#features)
-- [System Requirements](#system-requirements)
-- [Installation](#installation)
-- [Usage](#usage)
-- [API Endpoints](#api-endpoints)
-- [Configuration](#configuration)
-- [Performance Considerations](#performance-considerations)
-- [Security](#security)
-- [Contributing](#contributing)
-- [License](#license)
+---
 
-## Features
+## ⚙️ System Requirements
 
-- **Real-time Monitoring**: Uses eBPF to capture system call events as they occur.
-- **Performance Metrics**: Tracks execution time, CPU impact, memory impact, and disk I/O usage.
-- **System Call Categorization**: Groups system calls into categories such as:
-  - File I/O (e.g., `read`, `write`, `open`)
-  - Memory (e.g., `mmap`, `mprotect`)
-  - Process (e.g., `fork`, `execve`)
-  - And more (Signal, IPC, Synchronization, etc.).
-- **AI-Enhanced Optimization**: Generates strategies using the Groq API for high-performance system calls.
-- **Rule-Based Fallback**: Provides optimization suggestions when the Groq API is unavailable.
-- **Web Interface**: Built with Flask, offering visualization, filtering, and search capabilities.
-- **Resource Impact Visualization**: Displays CPU, memory, and disk I/O impacts with color-coded bars.
-- **Example Recommendations**:
-  - For `select` (high CPU impact): "Consider using epoll instead of select for better scalability."
-  - For `write` (File I/O): "Implement buffered I/O to reduce the frequency of write system calls."
+- Linux with eBPF support (Kernel ≥ 4.1)
+- Python 3.6+
+- BCC (BPF Compiler Collection)
 
-## System Requirements
+---
 
-- **Operating System**: Linux with eBPF support (kernel version 4.1 or later recommended).
-- **BCC**: BPF Compiler Collection installed for eBPF functionality.
-- **Python**: Version 3.6 or later.
+## 🛠️ Installation
 
-## Installation
+### 1. Clone the Repository
+```bash
+git clone https://github.com/yourusername/ai-system-call-optimizer.git
+cd ai-system-call-optimizer
+```
 
-Follow these steps to set up the AI System Call Optimizer on your system:
+### 2. Install Python Dependencies
+```bash
+pip install -r requirements.txt
+```
 
-1. **Clone the Repository**:
-   ```bash
-   git clone https://github.com/yourusername/ai-system-call-optimizer.git
-   cd ai-system-call-optimizer
+> 🔸 **Note**: The `bcc` Python package requires BCC system packages. Install them first.
+
+### 3. Install BCC System Package
+
+#### On Ubuntu:
+```bash
+sudo apt-get install bpfcc-tools linux-headers-$(uname -r)
+```
+
+#### On Other Distros:
+Refer to the [official BCC installation guide](https://github.com/iovisor/bcc/blob/master/INSTALL.md).
+
+---
+
+## 🚀 Usage
+
+### 1. Set the Groq API Key (Optional)
+To enable AI optimization:
+```bash
+export GROQ_API_KEY=your_api_key_here
+```
+
+### 2. Start the Flask Application
+```bash
+python app.py
+```
+
+### 3. Run on a Different Port (Optional)
+```bash
+export PORT=8080
+python app.py
+```
+
+### 4. Open the Web Interface
+Visit: [http://localhost:5000](http://localhost:5000)  
+(The page auto-refreshes every 5 seconds.)
+
+---
+
+## 🔌 API Endpoints
+
+| Endpoint                  | Description                                           |
+|---------------------------|-------------------------------------------------------|
+| `/performance`           | Get live syscall performance data                     |
+| `/recommendations`       | Get AI-based or rule-based optimization suggestions   |
+| `/categories`            | View syscall categories and groupings                 |
+| `/syscall/<syscall>`     | Get detailed metrics for a specific syscall           |
+
+Example:  
+```bash
+curl http://localhost:5000/syscall/write
+```
+
+---
+
+## 🛠️ Configuration
+
+- **Groq API Key**: Set `GROQ_API_KEY` as an environment variable.
+- **Performance Threshold**: Defined in `AISystemCallOptimizer` (default: `0.05s`)
+- **Refresh Interval**: Modify `REFRESH_INTERVAL` (default: `5` seconds)
+
+---
+
+## ⚡ Performance Considerations
+
+- eBPF overhead is minimal but can slightly impact very high-load systems.
+- Groq API calls are async/lightweight and do not block real-time monitoring.
+
+---
+
+## 🔒 Security
+
+- Requires **root** to attach eBPF probes:
+```bash
+sudo python app.py
+```
+
+- Ensure the host system is secure. eBPF can access kernel-level metrics.
+
+---
+
+## 🤝 Contributing
+
+We love contributions! Here’s how to get started:
+
+1. Fork the repo  
+2. Create a new branch (`git checkout -b feature-name`)  
+3. Commit your changes  
+4. Push to your branch (`git push origin feature-name`)  
+5. Open a Pull Request 🚀
+
+You can also:
+- Open Issues for bugs or feature suggestions
+- Discuss ideas via GitHub Discussions
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License**.  
+See the `LICENSE` file for full details.
+
+---
+
+## 📝 Additional Notes
+
+- 📷 **Screenshot Placeholder**: Replace `path/to/screenshot.png` above with your image file or a hosted URL.
+- 📦 **requirements.txt**:
+```
+Flask
+groq
+psutil
+bcc
+numpy
+python-dotenv
+```
+---
