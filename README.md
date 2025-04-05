@@ -1,6 +1,8 @@
 # AI System Call Optimizer
 
 
+A real-time system call monitoring and optimization tool using **eBPF**, **Flask**, and optional **AI (Groq API)** for performance analysis and smart recommendations.
+
 ![Performance-Metrics](./static/images/Screenshot%20from%202025-04-05%2014-50-08.png)
 ![Interface](./static/images/Screenshot%20from%202025-04-05%2014-50-20.png)
 ![Optimization-Recommendations](./static/images/Screenshot%20from%202025-04-05%2014-50-23.png)
