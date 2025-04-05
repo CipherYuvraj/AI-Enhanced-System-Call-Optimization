@@ -8,6 +8,7 @@ import psutil
 from flask import Flask, jsonify, render_template
 from groq import Groq
 from dotenv import load_dotenv
+from bcc import BPF
 
 # Load environment variables
 load_dotenv()
@@ -33,20 +34,81 @@ class AISystemCallOptimizer:
         self.learning_rate = learning_rate
         self.lock = threading.Lock()
         self.global_resource_baseline = self._capture_system_resources()
+        self.syscall_map = {0: "read", 1: "write", 2: "open", 3: "close"}  # Simplified; expand as needed
         if groq_api_key:
             self.groq_client = Groq(api_key=groq_api_key)
             print(f"Groq client initialized with API key: {groq_api_key[:5]}...")
         else:
             self.groq_client = None
             print("No Groq API key provided, falling back to rule-based strategy.")
-    
+        self.bpf = None
+        self.start_ebpf_monitoring()
+        threading.Thread(target=self.resource_monitoring_thread, daemon=True).start()
+
     def _capture_system_resources(self) -> Dict[str, float]:
         return {
             'cpu_percent': psutil.cpu_percent(interval=0.1),
             'memory_percent': psutil.virtual_memory().percent,
             'disk_io_percent': psutil.disk_usage('/').percent
         }
-    
+
+    def resource_monitoring_thread(self):
+        while True:
+            self.global_resource_baseline = self._capture_system_resources()
+            time.sleep(1)  # Update baseline every second
+
+    def start_ebpf_monitoring(self):
+        # eBPF program to monitor system calls
+        bpf_code = """
+        #include <uapi/linux/ptrace.h>
+
+        struct syscall_data_t {
+            u32 pid;        // Process ID
+            u64 ts;         // Timestamp (nanoseconds)
+            u32 syscall_nr; // System call number
+        };
+
+        BPF_HASH(start_times, u32, u64);         // Map to store start times
+        BPF_PERF_OUTPUT(events);                 // Output buffer to user space
+
+        int trace_sys_enter(struct bpf_raw_tracepoint_args *ctx) {
+            u32 pid = bpf_get_current_pid_tgid() >> 32;
+            u64 ts = bpf_ktime_get_ns();
+            start_times.update(&pid, &ts);
+            return 0;
+        }
+
+        int trace_sys_exit(struct bpf_raw_tracepoint_args *ctx) {
+            u32 pid = bpf_get_current_pid_tgid() >> 32;
+            u64 *start_ts = start_times.lookup(&pid);
+            if (start_ts == 0) return 0;
+
+            struct syscall_data_t data = {};
+            data.pid = pid;
+            data.ts = bpf_ktime_get_ns() - *start_ts;
+            data.syscall_nr = ctx->args[1];
+            events.perf_submit(ctx, &data, sizeof(data));
+            start_times.delete(&pid);
+            return 0;
+        }
+        """
+        self.bpf = BPF(text=bpf_code)
+        self.bpf.attach_raw_tracepoint(tp="sys_enter", fn_name="trace_sys_enter")
+        self.bpf.attach_raw_tracepoint(tp="sys_exit", fn_name="trace_sys_exit")
+
+        def process_event(cpu, data, size):
+            event = self.bpf["events"].event(data)
+            syscall_name = self.syscall_map.get(event.syscall_nr, f"unknown_{event.syscall_nr}")
+            execution_time = event.ts / 1e9  # Convert ns to seconds
+            self.record_syscall_performance(syscall_name, execution_time)
+
+        self.bpf["events"].open_perf_buffer(process_event)
+        threading.Thread(target=self.poll_ebpf_events, daemon=True).start()
+
+    def poll_ebpf_events(self):
+        while True:
+            self.bpf.perf_buffer_poll()
+
     def record_syscall_performance(self, syscall_name: str, execution_time: float):
         with self.lock:
             current_resources = self._capture_system_resources()
@@ -88,7 +150,7 @@ class AISystemCallOptimizer:
                     last_optimized=record.last_optimized,
                     resource_impact=aggregated_impact
                 )
-    
+
     def generate_optimization_strategy(self) -> List[Dict[str, Any]]:
         recommendations = []
         with self.lock:
@@ -110,7 +172,7 @@ class AISystemCallOptimizer:
                 "recommendations": recommendations
             })
         return recommendations
-    
+
     def _get_recommendation_type(self, record: SyscallPerformanceRecord) -> str:
         high_resource_impact = any(impact > 50 for impact in record.resource_impact.values())
         if high_resource_impact:
@@ -121,7 +183,7 @@ class AISystemCallOptimizer:
             return "SEVERE_PERFORMANCE_ISSUE"
         else:
             return "MODERATE_OPTIMIZATION"
-    
+
     def _generate_mitigation_strategy(self, record: SyscallPerformanceRecord) -> str:
         if self.groq_client:
             prompt = f"""
@@ -174,7 +236,7 @@ Resource Impacts:
             'disk_io_percent': 2
         }.get(max_resource_type, 0)
         return strategies[strategy_index]
-    
+
     def get_performance_data(self) -> Dict[str, Any]:
         with self.lock:
             return {k: asdict(v) for k, v in self.performance_records.items()}
@@ -197,18 +259,6 @@ def get_performance():
 def get_recommendations():
     return jsonify(syscall_optimizer.generate_optimization_strategy())
 
-def simulation_thread():
-    syscalls = ["read_file", "write_db", "compute_hash", "network_request"]
-    while True:
-        syscall = np.random.choice(syscalls)
-        execution_time = np.random.uniform(0.01, 0.1)
-        syscall_optimizer.record_syscall_performance(syscall, execution_time)
-        time.sleep(np.random.uniform(0.5, 2))
-
-# Start the simulation thread globally
-threading.Thread(target=simulation_thread, daemon=True).start()
-
 if __name__ == "__main__":
-    # For local development only (Windows or otherwise)
     port = int(os.environ.get("PORT", 5000))  # Default to 5000 locally
     app.run(host='0.0.0.0', port=port)
