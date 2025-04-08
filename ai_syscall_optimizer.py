@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from bcc import BPF
 from functools import lru_cache
 from time import time
+import numpy as np
 
 # Add these variables before your routes
 last_performance_update = 0
@@ -54,7 +55,7 @@ class AISystemCallOptimizer:
         self.performance_threshold = performance_threshold
         self.learning_rate = learning_rate
         self.lock = threading.Lock()
-        self.queue_condition = threading.Condition(self.lock)  # Added for efficient queue waiting
+        self.queue_condition = threading.Condition(self.lock)
         self.global_resource_baseline = self._capture_system_resources()
         self.optimization_queue: List[OptimizationStatus] = []
         self.auto_optimize = auto_optimize
@@ -102,10 +103,64 @@ class AISystemCallOptimizer:
             "Time": {"sysctl_params": {"kernel.timer_migration": 0}, "clocksource": "tsc"}
         }
 
-        self.groq_client = Groq(api_key=groq_api_key) if groq_api_key else None
+        # Category-specific optimization strategies
+        self.category_strategies = {
+            "File I/O": [
+                "Implement buffered I/O to reduce system call frequency",
+                "Use asynchronous I/O for operations to avoid blocking",
+                "Consider memory-mapped files instead of direct calls",
+                "Batch small reads/writes into larger operations",
+                "Use direct I/O for large sequential operations"
+            ],
+            "Memory": [
+                "Optimize memory allocation patterns to reduce fragmentation",
+                "Consider using huge pages to reduce overhead",
+                "Implement memory pooling for frequent allocations/deallocations",
+                "Preallocate memory when possible to avoid runtime allocations",
+                "Use shared memory for inter-process communication"
+            ],
+            "Process": [
+                "Minimize fork/clone calls through process reuse",
+                "Use thread pools instead of frequent process creation",
+                "Implement process caching for recurring operations",
+                "Consider using lightweight threads where applicable",
+                "Optimize scheduling priorities for critical processes"
+            ],
+            "Synchronization": [
+                "Reduce lock contention through finer-grained locking",
+                "Use lock-free algorithms when possible",
+                "Implement batching to reduce synchronization frequency",
+                "Consider using RCU (Read-Copy-Update) for read-heavy workloads",
+                "Optimize futex usage with adaptive waiting strategies"
+            ],
+            "IPC": [
+                "Use shared memory instead of pipes for large data transfers",
+                "Batch messages to reduce overhead",
+                "Consider using zero-copy techniques for efficiency",
+                "Use vectored I/O for multiple data segments",
+                "Implement message coalescing for small messages"
+            ],
+            "Time": [
+                "Cache time values to reduce syscall frequency",
+                "Use monotonic clocks for performance-sensitive code",
+                "Batch operations that require timestamps",
+                "Consider using coarse-grained timers when precision isn't critical",
+                "Implement timer wheels for efficient event scheduling"
+            ],
+            "Unknown": [
+                "Implement advanced caching mechanisms",
+                "Optimize memory allocation patterns",
+                "Implement adaptive batching strategies",
+                "Create intelligent parallelization strategies",
+                "Apply machine learning-based optimization techniques"
+            ]
+        }
+
         if groq_api_key:
+            self.groq_client = Groq(api_key=groq_api_key)
             print(f"Groq client initialized with API key: {groq_api_key[:5]}...")
         else:
+            self.groq_client = None
             print("No Groq API key provided, falling back to rule-based strategy.")
         
         self.bpf = None
@@ -128,13 +183,12 @@ class AISystemCallOptimizer:
 
     def resource_monitoring_thread(self):
         while True:
-        try:
-            self.global_resource_baseline = self._capture_system_resources()
-            time.sleep(10)  # Increased from 5 to 10 seconds
-        except Exception as e:
-            print(f"Resource monitoring error: {e}")
-            time.sleep(5)  # Reduced frequency
-
+            try:
+                self.global_resource_baseline = self._capture_system_resources()
+                time.sleep(10)  # Increased from 5 to 10 seconds
+            except Exception as e:
+                print(f"Resource monitoring error: {e}")
+                time.sleep(5)  # Reduced frequency on error
 
     def optimization_worker_thread(self):
         while True:
@@ -143,10 +197,11 @@ class AISystemCallOptimizer:
                 with self.queue_condition:
                     # Wait until there's work or a timeout occurs
                     while not self.optimization_queue or self.optimization_in_progress:
-                        if not self.queue_condition.wait(timeout=2.0):  # Increased timeout
+                        if not self.queue_condition.wait(timeout=2.0):
                             break  # Exit the inner loop on timeout
                     
                     if self.optimization_queue and not self.optimization_in_progress:
+                        # Prioritize task with highest average time
                         optimization_task = max(self.optimization_queue, key=lambda t: t.before_metrics['average_time'])
                         self.optimization_queue.remove(optimization_task)
                         self.optimization_in_progress = True
@@ -160,9 +215,14 @@ class AISystemCallOptimizer:
                         if success and after_metrics:
                             optimization_task.status = "applied"
                             optimization_task.after_metrics = after_metrics
-                            improvement = ((optimization_task.before_metrics['average_time'] - after_metrics['average_time']) / 
-                                        optimization_task.before_metrics['average_time']) * 100 if optimization_task.before_metrics['average_time'] > 0 else 0
+                            # Calculate improvement percentage
+                            if optimization_task.before_metrics['average_time'] > 0:
+                                improvement = ((optimization_task.before_metrics['average_time'] - after_metrics['average_time']) / 
+                                            optimization_task.before_metrics['average_time']) * 100
+                            else:
+                                improvement = 0
                             optimization_task.improvement_percentage = improvement
+                            
                             if optimization_task.syscall in self.performance_records:
                                 record = self.performance_records[optimization_task.syscall]
                                 if not record.optimization_results:
@@ -320,11 +380,12 @@ class AISystemCallOptimizer:
 
     def poll_ebpf_events(self):
         while True:
-            self.bpf.perf_buffer_poll()
-            time.sleep(0.1)
-        except Exception as e:
-            print(f"eBPF polling error: {e}")
-            time.sleep(1)
+            try:
+                self.bpf.perf_buffer_poll(timeout=100)  # Add timeout in milliseconds
+                time.sleep(0.1)  # Increase sleep time to reduce CPU usage
+            except Exception as e:
+                print(f"eBPF polling error: {e}")
+                time.sleep(1)
 
     def record_syscall_performance(self, syscall_name: str, execution_time: float, category: str = "Unknown"):
         with self.lock:
@@ -350,6 +411,8 @@ class AISystemCallOptimizer:
             else:
                 record = self.performance_records[syscall_name]
                 total_executions = record.execution_count + 1
+                
+                # Welford's online algorithm for mean and variance
                 delta = execution_time - record.average_time
                 new_average = record.average_time + delta / total_executions
                 delta2 = execution_time - new_average
@@ -377,28 +440,35 @@ class AISystemCallOptimizer:
         recommendations = []
         with self.lock:
             for syscall, record in self.performance_records.items():
+                # Define thresholds for critical and warning levels
                 is_critical = (record.average_time > self.performance_threshold or 
                               any(impact > 50 for impact in record.resource_impact.values()))
                 is_warning = (record.average_time > 0.02 or 
                              any(impact > 30 for impact in record.resource_impact.values())) and not is_critical
                 
                 if is_critical or is_warning:
+                    # Generate appropriate recommendation
+                    suggestion = self._generate_mitigation_strategy(record)
+                    
                     recommendation = {
                         "syscall": syscall,
                         "current_performance": record.average_time,
                         "recommendation_type": "CRITICAL" if is_critical else "WARNING",
-                        "suggested_action": self._generate_mitigation_strategy(record),
+                        "suggested_action": suggestion,
                         "resource_impact": record.resource_impact,
                         "category": record.category,
                         "optimization_applied": record.optimization_applied
                     }
                     recommendations.append(recommendation)
-                    self.recommendations_dict[syscall] = recommendation["suggested_action"]
                     
+                    # Update recommendations dictionary
+                    self.recommendations_dict[syscall] = suggestion
+                    
+                    # Queue for optimization if not already applied or queued
                     if not record.optimization_applied and not any(t.syscall == syscall for t in self.optimization_queue):
                         task = OptimizationStatus(
                             syscall=syscall,
-                            strategy=recommendation["suggested_action"],
+                            strategy=suggestion,
                             status="pending",
                             applied_at=time.time(),
                             before_metrics={
@@ -410,8 +480,9 @@ class AISystemCallOptimizer:
                         self.optimization_queue.append(task)
                         with self.queue_condition:
                             self.queue_condition.notify_all()
-                        print(f"Queued optimization for {syscall}: {recommendation['suggested_action']}")
+                        print(f"Queued optimization for {syscall}: {suggestion}")
         
+            # Record optimization history
             self.optimization_history.append({
                 "timestamp": time.time(),
                 "system_resources": self._capture_system_resources(),
@@ -420,23 +491,28 @@ class AISystemCallOptimizer:
         return recommendations
 
     def _generate_mitigation_strategy(self, record: SyscallPerformanceRecord) -> str:
+        """Generate an optimization strategy based on the syscall record"""
+        # First try to use Groq API if available
         if self.groq_client:
             prompt = f"""
-    System Call: {record.name}
-    Category: {record.category}
-    Average Execution Time: {record.average_time:.4f} seconds
-    Variance: {record.variance:.4f}
-    Resource Impacts: CPU: {record.resource_impact.get('cpu_percent', 0):.2f}%, Memory: {record.resource_impact.get('memory_percent', 0):.2f}%, Disk I/O: {record.resource_impact.get('disk_io_percent', 0):.2f}%
-    Suggest a concise optimization strategy in one sentence.
-    """
+System Call: {record.name}
+Category: {record.category}
+Average Execution Time: {record.average_time:.4f} seconds
+Variance: {record.variance:.4f}
+Resource Impacts: CPU: {record.resource_impact.get('cpu_percent', 0):.2f}%, Memory: {record.resource_impact.get('memory_percent', 0):.2f}%, Disk I/O: {record.resource_impact.get('disk_io_percent', 0):.2f}%
+Suggest a concise optimization strategy in one sentence.
+"""
             try:
                 from concurrent.futures import ThreadPoolExecutor, TimeoutError
                 
                 def call_api():
                     return self.groq_client.chat.completions.create(
                         model="llama3-8b-8192",
-                        messages=[{"role": "user", "content": prompt}],
-                        max_tokens=50,
+                        messages=[
+                            {"role": "system", "content": "You are an AI assistant specialized in system performance optimization. Provide your suggestions in plain text without code or special formatting."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        max_tokens=75,
                         temperature=0.7
                     )
                 
@@ -453,18 +529,43 @@ class AISystemCallOptimizer:
                 print(f"Error with Groq API: {e}")
         
         # Fallback to rule-based strategy
-        category_strategies = {
-            "File I/O": f"Use asynchronous I/O for {record.name} to reduce blocking.",
-            "Memory": f"Optimize memory allocation for {record.name} with huge pages.",
-            "Process": f"Minimize {record.name} calls via thread pooling.",
-            "Synchronization": f"Reduce lock contention around {record.name}.",
-            "IPC": f"Use shared memory for {record.name} to lower overhead.",
-            "Time": f"Cache results of {record.name} to reduce frequency."
+        # Get strategies for this category
+        strategies = self.category_strategies.get(record.category, self.category_strategies["Unknown"])
+        
+        # Select strategy based on resource impact and execution time
+        resource_weights = {
+            'cpu_percent': record.resource_impact.get('cpu_percent', 0),
+            'memory_percent': record.resource_impact.get('memory_percent', 0),
+            'disk_io_percent': record.resource_impact.get('disk_io_percent', 0)
         }
-        return category_strategies.get(record.category, f"Implement caching for {record.name}.")
+        
+        # Find which resource is most impacted
+        max_resource_type = max(resource_weights, key=resource_weights.get)
+        
+        # Select strategy index based on impact (higher impact → more aggressive strategy)
+        strategy_index = min(int(resource_weights[max_resource_type] / 20), len(strategies) - 1)
+        
+        # For high execution times, prioritize more aggressive strategies
+        if record.average_time > self.performance_threshold * 2:
+            strategy_index = min(strategy_index + 1, len(strategies) - 1)
+            
+        # Get the selected strategy and personalize it with the syscall name
+        strategy = strategies[strategy_index]
+        if "{record.name}" not in strategy:
+            strategy = f"{strategy} for {record.name}"
+        else:
+            strategy = strategy.format(record=record)
+            
+        return strategy
+
     def get_performance_data(self) -> Dict[str, Any]:
         with self.lock:
-            return {k: asdict(v) | {"recommendation": self.recommendations_dict.get(k, "")} for k, v in self.performance_records.items()}
+            result = {}
+            for k, v in self.performance_records.items():
+                record_dict = asdict(v)
+                record_dict['recommendation'] = self.recommendations_dict.get(k, "")
+                result[k] = record_dict
+            return result
 
     def get_refresh_interval(self) -> int:
         return self.refresh_interval
@@ -473,13 +574,18 @@ class AISystemCallOptimizer:
         with self.lock:
             categories = {}
             for syscall, record in self.performance_records.items():
-                categories.setdefault(record.category, []).append(syscall)
+                category = record.category
+                if category not in categories:
+                    categories[category] = []
+                categories[category].append(syscall)
             return categories
 
     def get_syscall_details(self, syscall_name: str) -> Dict[str, Any]:
         with self.lock:
             if syscall_name in self.performance_records:
-                return asdict(self.performance_records[syscall_name]) | {"recommendation": self.recommendations_dict.get(syscall_name, "")}
+                record_dict = asdict(self.performance_records[syscall_name])
+                record_dict['recommendation'] = self.recommendations_dict.get(syscall_name, "")
+                return record_dict
             return {"error": "System call not found"}
 
     def apply_optimization(self, syscall_name: str) -> Dict[str, Any]:
