@@ -9,6 +9,12 @@ from flask import Flask, jsonify, render_template, request
 from groq import Groq
 from dotenv import load_dotenv
 from bcc import BPF
+from functools import lru_cache
+from time import time
+
+# Add these variables before your routes
+last_performance_update = 0
+cached_performance_data = None
 
 # Load environment variables
 load_dotenv()
@@ -122,81 +128,104 @@ class AISystemCallOptimizer:
 
     def resource_monitoring_thread(self):
         while True:
+        try:
             self.global_resource_baseline = self._capture_system_resources()
+            time.sleep(10)  # Increased from 5 to 10 seconds
+        except Exception as e:
+            print(f"Resource monitoring error: {e}")
             time.sleep(5)  # Reduced frequency
+
 
     def optimization_worker_thread(self):
         while True:
-            with self.queue_condition:
-                if not self.optimization_queue or self.optimization_in_progress:
-                    self.queue_condition.wait()
-                    continue
-                task = max(self.optimization_queue, key=lambda t: t.before_metrics['average_time'])
-                self.optimization_queue.remove(task)
-                self.optimization_in_progress = True
-            
+            optimization_task = None
             try:
-                success, after_metrics = self._apply_optimization(task)
-                with self.lock:
-                    if success and after_metrics:
-                        task.status = "applied"
-                        task.after_metrics = after_metrics
-                        improvement = ((task.before_metrics['average_time'] - after_metrics['average_time']) / 
-                                      task.before_metrics['average_time']) * 100 if task.before_metrics['average_time'] > 0 else 0
-                        task.improvement_percentage = improvement
-                        if task.syscall in self.performance_records:
-                            record = self.performance_records[task.syscall]
-                            if not record.optimization_results:
-                                record.optimization_results = []
-                            record.optimization_applied = True
-                            record.optimization_results.append({
-                                "applied_at": task.applied_at,
-                                "strategy": task.strategy,
-                                "before_metrics": task.before_metrics,
-                                "after_metrics": after_metrics,
-                                "improvement_percentage": improvement
-                            })
-                            print(f"Optimized {task.syscall}: {improvement:.2f}% improvement")
-                    else:
-                        task.status = "failed"
-                        print(f"Optimization failed for {task.syscall}")
+                with self.queue_condition:
+                    # Wait until there's work or a timeout occurs
+                    while not self.optimization_queue or self.optimization_in_progress:
+                        if not self.queue_condition.wait(timeout=2.0):  # Increased timeout
+                            break  # Exit the inner loop on timeout
+                    
+                    if self.optimization_queue and not self.optimization_in_progress:
+                        optimization_task = max(self.optimization_queue, key=lambda t: t.before_metrics['average_time'])
+                        self.optimization_queue.remove(optimization_task)
+                        self.optimization_in_progress = True
+                
+                # Only process if we got a task
+                if optimization_task:
+                    success, after_metrics = self._apply_optimization(optimization_task)
+                    
+                    with self.lock:
+                        # Update task status based on optimization results
+                        if success and after_metrics:
+                            optimization_task.status = "applied"
+                            optimization_task.after_metrics = after_metrics
+                            improvement = ((optimization_task.before_metrics['average_time'] - after_metrics['average_time']) / 
+                                        optimization_task.before_metrics['average_time']) * 100 if optimization_task.before_metrics['average_time'] > 0 else 0
+                            optimization_task.improvement_percentage = improvement
+                            if optimization_task.syscall in self.performance_records:
+                                record = self.performance_records[optimization_task.syscall]
+                                if not record.optimization_results:
+                                    record.optimization_results = []
+                                record.optimization_applied = True
+                                record.optimization_results.append({
+                                    "applied_at": optimization_task.applied_at,
+                                    "strategy": optimization_task.strategy,
+                                    "before_metrics": optimization_task.before_metrics,
+                                    "after_metrics": after_metrics,
+                                    "improvement_percentage": improvement
+                                })
+                                print(f"Optimized {optimization_task.syscall}: {improvement:.2f}% improvement")
+                        else:
+                            optimization_task.status = "failed"
+                            print(f"Optimization failed for {optimization_task.syscall}")
+                    
+                    self.optimization_in_progress = False
+                    with self.queue_condition:
+                        self.queue_condition.notify_all()
+                else:
+                    # No task to process, sleep to avoid CPU spinning
+                    time.sleep(1)
+                    
             except Exception as e:
-                print(f"Optimization error for {task.syscall}: {e}")
-                task.status = "failed"
-            
-            self.optimization_in_progress = False
-            with self.queue_condition:
-                self.queue_condition.notify_all()
+                print(f"Optimization worker error: {e}")
+                self.optimization_in_progress = False
+                time.sleep(2)  # Recovery delay
 
     def _apply_optimization(self, task: OptimizationStatus) -> Tuple[bool, Optional[Dict[str, float]]]:
         syscall_name = task.syscall
         print(f"Optimizing {syscall_name}: {task.strategy}")
         
-        with self.lock:
-            if syscall_name not in self.performance_records:
-                return False, None
-            record = self.performance_records[syscall_name]
-            before_metrics = {
-                'average_time': record.average_time,
-                'variance': record.variance,
-                'resource_impact': record.resource_impact
-            }
-        
-        category = record.category
-        success = self._apply_category_optimization(category)
-        
-        time.sleep(2)  # Reduced delay for quicker feedback
-        
-        with self.lock:
-            if syscall_name in self.performance_records:
+        try:
+            with self.lock:
+                if syscall_name not in self.performance_records:
+                    return False, None
                 record = self.performance_records[syscall_name]
-                after_metrics = {
+                before_metrics = {
                     'average_time': record.average_time,
                     'variance': record.variance,
                     'resource_impact': record.resource_impact
                 }
-                return success, after_metrics
-        return success, None
+            
+            category = record.category
+            success = self._apply_category_optimization(category)
+            
+            # Reduced waiting time, but still give system time to apply changes
+            time.sleep(3)
+            
+            with self.lock:
+                if syscall_name in self.performance_records:
+                    record = self.performance_records[syscall_name]
+                    after_metrics = {
+                        'average_time': record.average_time,
+                        'variance': record.variance,
+                        'resource_impact': record.resource_impact
+                    }
+                    return success, after_metrics
+            return success, None
+        except Exception as e:
+            print(f"Error during optimization of {syscall_name}: {e}")
+            return False, None
 
     def _apply_category_optimization(self, category: str) -> bool:
         if os.geteuid() != 0:
@@ -292,7 +321,10 @@ class AISystemCallOptimizer:
     def poll_ebpf_events(self):
         while True:
             self.bpf.perf_buffer_poll()
-            time.sleep(0.01)
+            time.sleep(0.1)
+        except Exception as e:
+            print(f"eBPF polling error: {e}")
+            time.sleep(1)
 
     def record_syscall_performance(self, syscall_name: str, execution_time: float, category: str = "Unknown"):
         with self.lock:
@@ -390,26 +422,37 @@ class AISystemCallOptimizer:
     def _generate_mitigation_strategy(self, record: SyscallPerformanceRecord) -> str:
         if self.groq_client:
             prompt = f"""
-System Call: {record.name}
-Category: {record.category}
-Average Execution Time: {record.average_time:.4f} seconds
-Variance: {record.variance:.4f}
-Resource Impacts: CPU: {record.resource_impact.get('cpu_percent', 0):.2f}%, Memory: {record.resource_impact.get('memory_percent', 0):.2f}%, Disk I/O: {record.resource_impact.get('disk_io_percent', 0):.2f}%
-Suggest a concise optimization strategy in one sentence.
-"""
+    System Call: {record.name}
+    Category: {record.category}
+    Average Execution Time: {record.average_time:.4f} seconds
+    Variance: {record.variance:.4f}
+    Resource Impacts: CPU: {record.resource_impact.get('cpu_percent', 0):.2f}%, Memory: {record.resource_impact.get('memory_percent', 0):.2f}%, Disk I/O: {record.resource_impact.get('disk_io_percent', 0):.2f}%
+    Suggest a concise optimization strategy in one sentence.
+    """
             try:
-                response = self.groq_client.chat.completions.create(
-                    model="llama3-8b-8192",
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=50,
-                    temperature=0.7
-                )
-                suggestion = response.choices[0].message.content.strip()
-                if suggestion:
-                    return suggestion
+                from concurrent.futures import ThreadPoolExecutor, TimeoutError
+                
+                def call_api():
+                    return self.groq_client.chat.completions.create(
+                        model="llama3-8b-8192",
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=50,
+                        temperature=0.7
+                    )
+                
+                with ThreadPoolExecutor() as executor:
+                    future = executor.submit(call_api)
+                    try:
+                        response = future.result(timeout=5)  # 5 second timeout
+                        suggestion = response.choices[0].message.content.strip()
+                        if suggestion:
+                            return suggestion
+                    except TimeoutError:
+                        print(f"Groq API timeout for {record.name}")
             except Exception as e:
                 print(f"Error with Groq API: {e}")
         
+        # Fallback to rule-based strategy
         category_strategies = {
             "File I/O": f"Use asynchronous I/O for {record.name} to reduce blocking.",
             "Memory": f"Optimize memory allocation for {record.name} with huge pages.",
@@ -419,7 +462,6 @@ Suggest a concise optimization strategy in one sentence.
             "Time": f"Cache results of {record.name} to reduce frequency."
         }
         return category_strategies.get(record.category, f"Implement caching for {record.name}.")
-
     def get_performance_data(self) -> Dict[str, Any]:
         with self.lock:
             return {k: asdict(v) | {"recommendation": self.recommendations_dict.get(k, "")} for k, v in self.performance_records.items()}
@@ -470,7 +512,15 @@ def index():
 
 @app.route('/performance')
 def get_performance():
-    return jsonify(syscall_optimizer.get_performance_data())
+    global last_performance_update, cached_performance_data
+    current_time = time()
+    
+    # Only update cache every 2 seconds
+    if cached_performance_data is None or current_time - last_performance_update > 2:
+        cached_performance_data = syscall_optimizer.get_performance_data()
+        last_performance_update = current_time
+        
+    return jsonify(cached_performance_data)
 
 @app.route('/recommendations')
 def get_recommendations():
@@ -495,7 +545,7 @@ def get_optimization_status():
             "optimization_in_progress": syscall_optimizer.optimization_in_progress,
             "queue": [asdict(task) for task in syscall_optimizer.optimization_queue]
         })
-
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    debug_mode = os.environ.get("DEBUG", "False").lower() == "true"
+    app.run(host='0.0.0.0', port=port, debug=debug_mode, threaded=True)
