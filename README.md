@@ -23,7 +23,7 @@ A real-time system call monitoring and optimization tool using **eBPF**, **Flask
 
 - Linux with eBPF support (Kernel ≥ 4.1)
 - Python 3.6+
-- BCC (BPF Compiler Collection)
+- BCC (BPF Compiler9 Collection)
 
 ---
 

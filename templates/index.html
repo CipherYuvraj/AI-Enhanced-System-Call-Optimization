@@ -60,6 +60,12 @@
                 opacity: 0.7;
             }
         }
+        .optimization-btn {
+            transition: background-color 0.3s;
+        }
+        .optimization-btn:hover {
+            background-color: #1e3a8a;
+        }
     </style>
 </head>
 <body class="bg-tech-dark text-tech-light font-mono antialiased min-h-screen">
@@ -217,6 +223,7 @@
                                     <th class="px-4 py-2 text-left text-xs font-medium text-tech-blue uppercase tracking-wider">Avg Time</th>
                                     <th class="px-4 py-2 text-left text-xs font-medium text-tech-blue uppercase tracking-wider">CPU</th>
                                     <th class="px-4 py-2 text-left text-xs font-medium text-tech-blue uppercase tracking-wider">Status</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-tech-blue uppercase tracking-wider">Optimize</th>
                                 </tr>
                             </thead>
                             <tbody id="table-body" class="divide-y divide-[#233554]">
@@ -225,6 +232,9 @@
                         </table>
                     </div>
                 </div>
+                
+                <!-- Optimization status -->
+                <div id="optimization-status" class="mb-4 text-center text-sm"></div>
                 
                 <!-- Selected system call details panel -->
                 <div id="syscall-details" class="bg-[#112240] rounded-lg shadow-xl p-4 mb-6 hidden">
@@ -321,6 +331,13 @@
                         <div class="bg-[#0a192f] rounded p-4">
                             <canvas id="performance-chart" height="200"></canvas>
                         </div>
+                    </div>
+                    
+                    <div class="mt-6">
+                        <button id="optimize-btn" class="optimization-btn bg-tech-blue text-tech-dark px-4 py-2 rounded text-sm">
+                            Optimize This System Call
+                        </button>
+                        <span id="optimize-status" class="ml-4 text-sm"></span>
                     </div>
                 </div>
                 
@@ -443,9 +460,14 @@
                 document.getElementById('syscall-details').classList.add('hidden');
             });
             
+            // Optimize button
+            document.getElementById('optimize-btn').addEventListener('click', function() {
+                const syscall = document.getElementById('detail-title').textContent;
+                optimizeSyscall(syscall);
+            });
+            
             // Theme selector
             document.getElementById('theme-selector').addEventListener('change', function() {
-                // Theme switching logic would go here
                 console.log('Theme changed to:', this.value);
                 // This is a stub - you would implement actual theme switching
             });
@@ -550,7 +572,6 @@
         
         function updateSyscallView(data) {
             if (!data) {
-                // If no data is provided, fetch it
                 fetch('/performance')
                     .then(response => response.json())
                     .then(updateSyscallView)
@@ -566,12 +587,10 @@
             
             let filteredSyscalls = Object.entries(data)
                 .filter(([syscall, record]) => {
-                    // Check for unknown syscalls
                     if (!showUnknown && syscall.startsWith('unknown_')) {
                         return false;
                     }
                     
-                    // Check for critical issues
                     if (showCriticalOnly && 
                         !(record.average_time > 0.05 || 
                           (record.resource_impact.cpu_percent || 0) > 50 ||
@@ -579,17 +598,14 @@
                         return false;
                     }
                     
-                    // Check for minimum executions
                     if (record.execution_count < minExecutions) {
                         return false;
                     }
                     
-                    // Check for search query
                     if (searchQuery && !syscall.toLowerCase().includes(searchQuery)) {
                         return false;
                     }
                     
-                    // Check for selected category
                     if (activeCategory !== 'All Categories' && record.category !== activeCategory) {
                         return false;
                     }
@@ -610,23 +626,12 @@
         function updateGridView(syscalls) {
             const gridContainer = document.getElementById('grid-view');
             gridContainer.innerHTML = '';
-            // Update grid view
-            updateGridView(filteredSyscalls);
-            
-            // Update table view
-            updateTableView(filteredSyscalls);
-        }
-        
-        function updateGridView(syscalls) {
-            const gridContainer = document.getElementById('grid-view');
-            gridContainer.innerHTML = '';
             
             syscalls.forEach(([syscall, record]) => {
                 const card = document.createElement('div');
                 card.className = 'syscall-card bg-[#0a192f] rounded-lg shadow p-4 cursor-pointer hover:border hover:border-tech-blue';
                 card.dataset.syscall = syscall;
                 
-                // Determine status color based on performance metrics
                 let statusColor = 'bg-tech-green';
                 let statusText = 'Good';
                 
@@ -659,6 +664,7 @@
                         <span class="text-tech-light">CPU:</span>
                         <span class="text-tech-yellow">${record.resource_impact.cpu_percent.toFixed(1)}%</span>
                     </div>
+                    ${record.optimized ? `<div class="mt-2 text-xs text-tech-green">Optimized: ${record.optimization_method}</div>` : ''}
                 `;
                 
                 card.addEventListener('click', () => showSyscallDetails(syscall, record));
@@ -679,7 +685,6 @@
                 row.className = 'hover:bg-[#0a192f] cursor-pointer';
                 row.dataset.syscall = syscall;
                 
-                // Determine status color based on performance metrics
                 let statusColor = 'bg-tech-green';
                 let statusText = 'Good';
                 
@@ -703,6 +708,10 @@
                             <span class="text-xs text-tech-light">${statusText}</span>
                         </div>
                     </td>
+                    <td class="px-4 py-2">
+                        <button class="optimization-btn bg-tech-blue text-tech-dark px-2 py-1 rounded text-xs" onclick="optimizeSyscall('${syscall}')">Optimize</button>
+                        ${record.optimized ? `<span class="ml-2 text-tech-green">Optimized: ${record.optimization_method}</span>` : ''}
+                    </td>
                 `;
                 
                 row.addEventListener('click', () => showSyscallDetails(syscall, record));
@@ -710,7 +719,7 @@
             });
             
             if (syscalls.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-tech-light">No system calls matching the current filters.</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-tech-light">No system calls matching the current filters.</td></tr>';
             }
         }
         
@@ -718,27 +727,22 @@
             const container = document.getElementById('category-buttons');
             const allButton = container.querySelector('.category-button');
             
-            // Clear existing buttons except the "All Categories" button
             while (container.childElementCount > 1) {
                 container.removeChild(container.lastChild);
             }
             
-            // Add new category buttons
             categories.forEach(category => {
                 const button = document.createElement('button');
                 button.className = 'category-button w-full py-2 px-3 rounded text-left text-tech-lightest bg-[#0a192f] hover:bg-[#233554]';
                 button.textContent = category;
                 
                 button.addEventListener('click', function() {
-                    // Deactivate all buttons
                     document.querySelectorAll('.category-button').forEach(btn => {
                         btn.classList.remove('active');
                     });
                     
-                    // Activate this button
                     this.classList.add('active');
                     
-                    // Set active category and update view
                     activeCategory = category;
                     updateSyscallView();
                 });
@@ -746,17 +750,13 @@
                 container.appendChild(button);
             });
             
-            // Add event listener to "All Categories" button
             allButton.addEventListener('click', function() {
-                // Deactivate all buttons
                 document.querySelectorAll('.category-button').forEach(btn => {
                     btn.classList.remove('active');
                 });
                 
-                // Activate this button
                 this.classList.add('active');
                 
-                // Set active category and update view
                 activeCategory = 'All Categories';
                 updateSyscallView();
             });
@@ -780,11 +780,15 @@
                         <h3 class="text-tech-lightest font-semibold">${rec.syscall}</h3>
                         <div class="flex items-center">
                             <div class="w-3 h-3 rounded-full bg-tech-red mr-1"></div>
-                            <span class="text-xs text-tech-light">Critical</span>
+                            <span class="text-xs text-tech-light">${rec.recommendation_type}</span>
                         </div>
                     </div>
-                    <p class="text-tech-light mb-3">${rec.issue}</p>
-                    <div class="text-tech-blue text-sm">${rec.recommendation}</div>
+                    <p class="text-tech-light mb-3">${rec.suggested_action}</p>
+                    <div class="text-tech-blue text-sm">Performance: ${rec.current_performance.toFixed(4)}s</div>
+                    <div class="text-tech-light text-sm">
+                        Resource Impact: CPU: ${rec.resource_impact.cpu_percent.toFixed(2)}%, Memory: ${rec.resource_impact.memory_percent.toFixed(2)}%, Disk I/O: ${rec.resource_impact.disk_io_percent.toFixed(2)}%
+                    </div>
+                    ${rec.optimized ? `<div class="mt-2 text-xs text-tech-green">Optimized with: ${rec.optimization_method}</div>` : ''}
                 `;
                 
                 container.appendChild(card);
@@ -795,20 +799,17 @@
             const detailPanel = document.getElementById('syscall-details');
             detailPanel.classList.remove('hidden');
             
-            // Update title
             document.getElementById('detail-title').textContent = syscall;
             
-            // Update metrics
             document.getElementById('detail-avg-time').textContent = `${record.average_time.toFixed(5)}s`;
             document.getElementById('detail-executions').textContent = record.execution_count.toLocaleString();
             document.getElementById('detail-variance').textContent = `${(record.variance || 0).toFixed(5)}s`;
-            document.getElementById('detail-peak').textContent = `${(record.peak_time || 0).toFixed(5)}s`;
-            document.getElementById('detail-last-optimized').textContent = record.last_optimized || 'Never';
+            document.getElementById('detail-peak').textContent = `${(record.peak_performance || 0).toFixed(5)}s`;
+            document.getElementById('detail-last-optimized').textContent = record.last_optimized ? new Date(record.last_optimized * 1000).toLocaleString() : 'Never';
             
-            // Update resource impact
             const cpuImpact = record.resource_impact.cpu_percent || 0;
             const memoryImpact = record.resource_impact.memory_percent || 0;
-            const diskImpact = record.resource_impact.disk_percent || 0;
+            const diskImpact = record.resource_impact.disk_io_percent || 0;
             
             document.getElementById('detail-cpu').textContent = `${cpuImpact.toFixed(1)}%`;
             document.getElementById('detail-memory').textContent = `${memoryImpact.toFixed(1)}%`;
@@ -818,38 +819,22 @@
             document.getElementById('detail-memory-bar').style.width = `${Math.min(100, memoryImpact)}%`;
             document.getElementById('detail-disk-bar').style.width = `${Math.min(100, diskImpact)}%`;
             
-            // Update description
             document.getElementById('detail-description').textContent = syscallDescriptions[syscall] || 'No description available for this system call.';
             
-            // Update recommendation
-            let recommendation = 'No issues detected with this system call.';
+            document.getElementById('detail-recommendation').textContent = record.recommendation || 'No issues detected with this system call.';
             
-            if (record.average_time > 0.05) {
-                recommendation = 'This system call is taking longer than expected. Consider optimizing the code that triggers this call or reducing the frequency of calls.';
-            } else if (cpuImpact > 50) {
-                recommendation = 'This system call has a high CPU impact. Consider batching operations or using more efficient alternatives.';
-            } else if (memoryImpact > 50) {
-                recommendation = 'This system call has a high memory impact. Check for memory leaks or implement more efficient memory management.';
-            }
-            
-            document.getElementById('detail-recommendation').textContent = recommendation;
-            
-            // Update performance chart
             updatePerformanceChart(syscall);
         }
         
         function updatePerformanceChart(syscall) {
             const ctx = document.getElementById('performance-chart').getContext('2d');
             
-            // Clear previous chart if it exists
             if (performanceChart) {
                 performanceChart.destroy();
             }
             
-            // Get performance history for this syscall
             const history = performanceHistory[syscall] || [];
             
-            // Prepare data for the chart
             const labels = history.map(entry => {
                 const date = new Date(entry.timestamp);
                 return `${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}`;
@@ -901,236 +886,63 @@
                             type: 'linear',
                             display: true,
                             position: 'left',
-                            title: {
-                                display: true,
-                                text: 'Time (ms)',
-                                color: '#64ffda'
-                            },
-                            grid: {
-                                color: 'rgba(35, 53, 84, 0.3)'
-                            },
-                            ticks: {
-                                color: '#8892b0'
-                            }
+                            title: { display: true, text: 'Time (ms)', color: '#64ffda' },
+                            grid: { color: 'rgba(35, 53, 84, 0.3)' },
+                            ticks: { color: '#8892b0' }
                         },
                         y1: {
                             type: 'linear',
                             display: true,
                             position: 'right',
-                            title: {
-                                display: true,
-                                text: 'Impact (%)',
-                                color: '#ffd866'
-                            },
+                            title: { display: true, text: 'Impact (%)', color: '#ffd866' },
                             min: 0,
                             max: 100,
-                            grid: {
-                                drawOnChartArea: false,
-                                color: 'rgba(35, 53, 84, 0.3)'
-                            },
-                            ticks: {
-                                color: '#8892b0'
-                            }
+                            grid: { drawOnChartArea: false, color: 'rgba(35, 53, 84, 0.3)' },
+                            ticks: { color: '#8892b0' }
                         },
                         x: {
-                            grid: {
-                                color: 'rgba(35, 53, 84, 0.3)'
-                            },
-                            ticks: {
-                                color: '#8892b0'
-                            }
+                            grid: { color: 'rgba(35, 53, 84, 0.3)' },
+                            ticks: { color: '#8892b0' }
                         }
                     },
                     plugins: {
                         legend: {
                             position: 'top',
-                            labels: {
-                                color: '#ccd6f6'
-                            }
+                            labels: { color: '#ccd6f6' }
                         }
                     }
                 }
             });
         }
         
-        // For demo purposes, we would mock fetching data
-        // These functions would be replaced with actual API calls in a real app
-        
-        // Mock data
-        function getRandomSyscalls() {
-            const syscalls = {
-                'read': {
-                    category: 'File I/O',
-                    execution_count: Math.floor(Math.random() * 10000) + 5000,
-                    average_time: (Math.random() * 0.01) + 0.001,
-                    variance: Math.random() * 0.003,
-                    peak_time: (Math.random() * 0.05) + 0.01,
-                    last_optimized: '2023-11-20 14:25:36',
-                    resource_impact: {
-                        cpu_percent: Math.random() * 30,
-                        memory_percent: Math.random() * 20,
-                        disk_percent: Math.random() * 60
-                    }
-                },
-                'write': {
-                    category: 'File I/O',
-                    execution_count: Math.floor(Math.random() * 8000) + 3000,
-                    average_time: (Math.random() * 0.02) + 0.001,
-                    variance: Math.random() * 0.005,
-                    peak_time: (Math.random() * 0.08) + 0.02,
-                    last_optimized: '2023-11-18 10:12:05',
-                    resource_impact: {
-                        cpu_percent: Math.random() * 25,
-                        memory_percent: Math.random() * 15,
-                        disk_percent: Math.random() * 70
-                    }
-                },
-                'mmap': {
-                    category: 'Memory',
-                    execution_count: Math.floor(Math.random() * 5000) + 2000,
-                    average_time: (Math.random() * 0.03) + 0.01,
-                    variance: Math.random() * 0.01,
-                    peak_time: (Math.random() * 0.1) + 0.05,
-                    last_optimized: null,
-                    resource_impact: {
-                        cpu_percent: Math.random() * 15,
-                        memory_percent: Math.random() * 60,
-                        disk_percent: Math.random() * 5
-                    }
-                },
-                'futex': {
-                    category: 'Synchronization',
-                    execution_count: Math.floor(Math.random() * 20000) + 10000,
-                    average_time: (Math.random() * 0.001) + 0.0001,
-                    variance: Math.random() * 0.0005,
-                    peak_time: (Math.random() * 0.01) + 0.001,
-                    last_optimized: '2023-11-22 09:30:15',
-                    resource_impact: {
-                        cpu_percent: Math.random() * 40,
-                        memory_percent: Math.random() * 10,
-                        disk_percent: Math.random() * 1
-                    }
-                },
-                'clock_gettime': {
-                    category: 'Time',
-                    execution_count: Math.floor(Math.random() * 30000) + 15000,
-                    average_time: (Math.random() * 0.0005) + 0.0001,
-                    variance: Math.random() * 0.0001,
-                    peak_time: (Math.random() * 0.001) + 0.0005,
-                    last_optimized: '2023-11-10 16:45:22',
-                    resource_impact: {
-                        cpu_percent: Math.random() * 5,
-                        memory_percent: Math.random() * 2,
-                        disk_percent: Math.random() * 0.5
-                    }
-                },
-                'select': {
-                    category: 'I/O Multiplexing',
-                    execution_count: Math.floor(Math.random() * 7000) + 3000,
-                    average_time: (Math.random() * 0.08) + 0.02,
-                    variance: Math.random() * 0.02,
-                    peak_time: (Math.random() * 0.2) + 0.1,
-                    last_optimized: null,
-                    resource_impact: {
-                        cpu_percent: Math.random() * 55,
-                        memory_percent: Math.random() * 25,
-                        disk_percent: Math.random() * 10
-                    }
-                },
-                'fork': {
-                    category: 'Process',
-                    execution_count: Math.floor(Math.random() * 500) + 100,
-                    average_time: (Math.random() * 0.1) + 0.05,
-                    variance: Math.random() * 0.05,
-                    peak_time: (Math.random() * 0.3) + 0.15,
-                    last_optimized: '2023-11-05 11:20:33',
-                    resource_impact: {
-                        cpu_percent: Math.random() * 70,
-                        memory_percent: Math.random() * 45,
-                        disk_percent: Math.random() * 30
-                    }
-                },
-                'unknown_syscall_123': {
-                    category: 'Unknown',
-                    execution_count: Math.floor(Math.random() * 200) + 50,
-                    average_time: (Math.random() * 0.2) + 0.1,
-                    variance: Math.random() * 0.1,
-                    peak_time: (Math.random() * 0.5) + 0.2,
-                    last_optimized: null,
-                    resource_impact: {
-                        cpu_percent: Math.random() * 85,
-                        memory_percent: Math.random() * 65,
-                        disk_percent: Math.random() * 40
-                    }
+        function optimizeSyscall(syscall) {
+            fetch(`/optimize/${syscall}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                const statusDiv = document.getElementById('optimization-status');
+                const optimizeStatus = document.getElementById('optimize-status');
+                if (data.status === 'success') {
+                    statusDiv.textContent = `${data.message} ✓`;
+                    statusDiv.style.color = '#50fa7b';
+                    optimizeStatus.textContent = 'Optimized ✓';
+                    optimizeStatus.style.color = '#50fa7b';
+                } else {
+                    statusDiv.textContent = `${data.message} ✗`;
+                    statusDiv.style.color = '#ff5252';
+                    optimizeStatus.textContent = 'Failed ✗';
+                    optimizeStatus.style.color = '#ff5252';
                 }
-            };
-            
-            // Add some randomness to select values
-            Object.values(syscalls).forEach(syscall => {
-                // Randomly adjust values to simulate changing metrics
-                syscall.average_time *= 0.8 + Math.random() * 0.4; // +/- 20%
-                syscall.execution_count = Math.floor(syscall.execution_count * (0.9 + Math.random() * 0.2)); // +/- 10%
-                syscall.resource_impact.cpu_percent *= 0.9 + Math.random() * 0.2; // +/- 10%
-                syscall.resource_impact.memory_percent *= 0.9 + Math.random() * 0.2; // +/- 10%
-            });
-            
-            return syscalls;
-        }
-        
-        // Simulate API endpoints
-        const endpoints = {
-            '/performance': getRandomSyscalls,
-            '/categories': () => ['File I/O', 'Memory', 'Process', 'Signal', 'IPC', 'Synchronization', 'Time', 'I/O Multiplexing', 'File System', 'Unknown'],
-            '/recommendations': () => {
-                const syscalls = getRandomSyscalls();
-                const critical = Object.entries(syscalls)
-                    .filter(([_, record]) => 
-                        record.average_time > 0.05 || 
-                        record.resource_impact.cpu_percent > 50 ||
-                        record.resource_impact.memory_percent > 50
-                    )
-                    .map(([syscall, record]) => {
-                        let issue = '';
-                        let recommendation = '';
-                        
-                        if (record.average_time > 0.05) {
-                            issue = `Slow execution time (${record.average_time.toFixed(5)}s)`;
-                            recommendation = 'Optimize code paths that trigger this syscall or reduce call frequency.';
-                        } else if (record.resource_impact.cpu_percent > 50) {
-                            issue = `High CPU impact (${record.resource_impact.cpu_percent.toFixed(1)}%)`;
-                            recommendation = 'Consider batching operations or using more efficient alternatives.';
-                        } else if (record.resource_impact.memory_percent > 50) {
-                            issue = `High memory usage (${record.resource_impact.memory_percent.toFixed(1)}%)`;
-                            recommendation = 'Check for memory leaks or implement more efficient memory management.';
-                        }
-                        
-                        return {
-                            syscall,
-                            issue,
-                            recommendation
-                        };
-                    });
-                
-                return critical;
-            }
-        };
-        
-        // Mock fetch API
-        window.fetch = function(url) {
-            return new Promise((resolve) => {
                 setTimeout(() => {
-                    if (endpoints[url]) {
-                        resolve({
-                            json: () => Promise.resolve(endpoints[url]())
-                        });
-                    } else {
-                        resolve({
-                            json: () => Promise.resolve({})
-                        });
-                    }
-                }, 300);
-            });
-        };
+                    statusDiv.textContent = '';
+                    optimizeStatus.textContent = '';
+                }, 3000);
+                updateDashboard(); // Refresh to reflect optimization
+            })
+            .catch(error => console.error('Error optimizing syscall:', error));
+        }
     </script>
 </body>
 </html>
