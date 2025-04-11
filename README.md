@@ -1,7 +1,7 @@
 # AI System Call Optimizer
 
 
-A real-time system call monitoring and optimization tool using **eBPF**, **Flask**, and optional **AI (Groq API)** for performance analysis and smart recommendations.
+A real-time system call monitoring and optimization tool using **dTrace**, **Flask**, and optional **AI (Groq API)** for performance analysis and smart recommendations.
 
 ![Performance-Metrics](./static/images/Screenshot%20from%202025-04-05%2014-50-08.png)
 ![Interface](./static/images/Screenshot%20from%202025-04-05%2014-50-20.png)
@@ -21,9 +21,9 @@ A real-time system call monitoring and optimization tool using **eBPF**, **Flask
 
 ## ⚙️ System Requirements
 
-- Linux with eBPF support (Kernel ≥ 4.1)
+- MAC with dtrace support
 - Python 3.6+
-- BCC (BPF Compiler9 Collection)
+- BCC (BPF Compiler Collection)
 
 ---
 
@@ -31,7 +31,7 @@ A real-time system call monitoring and optimization tool using **eBPF**, **Flask
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/yourusername/ai-system-call-optimizer.git
+git clone https://github.com/parvaggarwal01/ai-system-call-optimizer.git
 cd ai-system-call-optimizer
 ```
 
@@ -64,17 +64,17 @@ export GROQ_API_KEY=your_api_key_here
 
 ### 2. Start the Flask Application
 ```bash
-python app.py
+sudo python2 ai_syscall_optimizer.py
 ```
 
 ### 3. Run on a Different Port (Optional)
 ```bash
 export PORT=8080
-python app.py
+sudo python2 ai_syscall_optimizer.py
 ```
 
 ### 4. Open the Web Interface
-Visit: [http://localhost:5000](http://localhost:5000)  
+Visit: [http://localhost:5001](http://localhost:5001)
 (The page auto-refreshes every 5 seconds.)
 
 ---
@@ -88,9 +88,9 @@ Visit: [http://localhost:5000](http://localhost:5000)
 | `/categories`            | View syscall categories and groupings                 |
 | `/syscall/<syscall>`     | Get detailed metrics for a specific syscall           |
 
-Example:  
+Example:
 ```bash
-curl http://localhost:5000/syscall/write
+curl http://localhost:5001/syscall/write
 ```
 
 ---
@@ -105,7 +105,7 @@ curl http://localhost:5000/syscall/write
 
 ## ⚡ Performance Considerations
 
-- eBPF overhead is minimal but can slightly impact very high-load systems.
+- dtrace overhead is minimal but can slightly impact very high-load systems.
 - Groq API calls are async/lightweight and do not block real-time monitoring.
 
 ---
@@ -114,10 +114,10 @@ curl http://localhost:5000/syscall/write
 
 - Requires **root** to attach eBPF probes:
 ```bash
-sudo python app.py
+sudo python2 ai_syscall_optimizer.py
 ```
 
-- Ensure the host system is secure. eBPF can access kernel-level metrics.
+- Ensure the host system is secure. dtrace can access kernel-level metrics.
 
 ---
 
@@ -125,10 +125,10 @@ sudo python app.py
 
 We love contributions! Here’s how to get started:
 
-1. Fork the repo  
-2. Create a new branch (`git checkout -b feature-name`)  
-3. Commit your changes  
-4. Push to your branch (`git push origin feature-name`)  
+1. Fork the repo
+2. Create a new branch (`git checkout -b feature-name`)
+3. Commit your changes
+4. Push to your branch (`git push origin feature-name`)
 5. Open a Pull Request 🚀
 
 You can also:
@@ -139,7 +139,7 @@ You can also:
 
 ## 📄 License
 
-This project is licensed under the **MIT License**.  
+This project is licensed under the **MIT License**.
 See the `LICENSE` file for full details.
 
 ---
