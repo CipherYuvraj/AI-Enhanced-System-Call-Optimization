@@ -74,7 +74,7 @@ python app.py
 ```
 
 ### 4. Open the Web Interface
-Visit: [http://localhost:5000](http://localhost:5000)  
+Visit: [http://localhost:5000](http://localhost:5000)
 (The page auto-refreshes every 5 seconds.)
 
 ---
@@ -88,7 +88,7 @@ Visit: [http://localhost:5000](http://localhost:5000)
 | `/categories`            | View syscall categories and groupings                 |
 | `/syscall/<syscall>`     | Get detailed metrics for a specific syscall           |
 
-Example:  
+Example:
 ```bash
 curl http://localhost:5000/syscall/write
 ```
@@ -125,10 +125,10 @@ sudo python app.py
 
 We love contributions! Here’s how to get started:
 
-1. Fork the repo  
-2. Create a new branch (`git checkout -b feature-name`)  
-3. Commit your changes  
-4. Push to your branch (`git push origin feature-name`)  
+1. Fork the repo
+2. Create a new branch (`git checkout -b feature-name`)
+3. Commit your changes
+4. Push to your branch (`git push origin feature-name`)
 5. Open a Pull Request 🚀
 
 You can also:
@@ -139,7 +139,7 @@ You can also:
 
 ## 📄 License
 
-This project is licensed under the **MIT License**.  
+This project is licensed under the **MIT License**.
 See the `LICENSE` file for full details.
 
 ---

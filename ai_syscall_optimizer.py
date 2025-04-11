@@ -36,7 +36,7 @@ class AISystemCallOptimizer:
         self.learning_rate = learning_rate
         self.lock = threading.Lock()
         self.global_resource_baseline = self._capture_system_resources()
-        
+
         # Expanded syscall map with categories
         self.syscall_map = {
             # File operations
@@ -106,7 +106,7 @@ class AISystemCallOptimizer:
         self.bpf = None
         self.start_ebpf_monitoring()
         threading.Thread(target=self.resource_monitoring_thread, daemon=True).start()
-        
+
         # Set a consistent refresh interval (in seconds)
         self.refresh_interval = 5
         print(f"Performance data will refresh every {self.refresh_interval} seconds")
@@ -183,7 +183,7 @@ class AISystemCallOptimizer:
                 k: max(0, current_resources[k] - self.global_resource_baseline.get(k, 0))
                 for k in current_resources
             }
-            
+
             if syscall_name not in self.performance_records:
                 self.performance_records[syscall_name] = SyscallPerformanceRecord(
                     name=syscall_name,
@@ -202,13 +202,13 @@ class AISystemCallOptimizer:
                     record.average_time * record.execution_count + execution_time
                 ) / total_executions
                 variance = np.var([record.average_time, execution_time])
-                
+
                 aggregated_impact = {
-                    k: (record.resource_impact.get(k, 0) * record.execution_count + 
+                    k: (record.resource_impact.get(k, 0) * record.execution_count +
                         resource_impact.get(k, 0)) / total_executions
                     for k in set(record.resource_impact) | set(resource_impact)
                 }
-                
+
                 self.performance_records[syscall_name] = SyscallPerformanceRecord(
                     name=syscall_name,
                     average_time=new_average,
@@ -224,7 +224,7 @@ class AISystemCallOptimizer:
         recommendations = []
         with self.lock:
             for syscall, record in self.performance_records.items():
-                if (record.average_time > self.performance_threshold or 
+                if (record.average_time > self.performance_threshold or
                     any(impact > 50 for impact in record.resource_impact.values())):
                     recommendation = {
                         "syscall": syscall,
@@ -235,10 +235,10 @@ class AISystemCallOptimizer:
                         "category": record.category
                     }
                     recommendations.append(recommendation)
-            
+
             # Update the recommendations dictionary
             self.recommendations_dict = {rec['syscall']: rec['suggested_action'] for rec in recommendations}
-            
+
             self.optimization_history.append({
                 "timestamp": time.time(),
                 "system_resources": self._capture_system_resources(),
@@ -324,7 +324,7 @@ Resource Impacts:
                 f"Batch operations that require timestamp from {record.name}"
             ]
         }
-        
+
         if record.category in category_strategies:
             strategies = category_strategies[record.category]
         else:
@@ -335,7 +335,7 @@ Resource Impacts:
                 f"Create intelligent parallelization strategy for {record.name}",
                 f"Apply machine learning-based optimization for {record.name}"
             ]
-        
+
         resource_weights = {
             'cpu_percent': record.resource_impact.get('cpu_percent', 0),
             'memory_percent': record.resource_impact.get('memory_percent', 0),
@@ -353,10 +353,10 @@ Resource Impacts:
                 record_dict['recommendation'] = self.recommendations_dict.get(k, '')
                 data[k] = record_dict
             return data
-            
+
     def get_refresh_interval(self) -> int:
         return self.refresh_interval
-        
+
     def get_syscall_categories(self) -> Dict[str, List[str]]:
         categories = {}
         with self.lock:
@@ -366,7 +366,7 @@ Resource Impacts:
                     categories[category] = []
                 categories[category].append(syscall)
         return categories
-        
+
     def get_syscall_details(self, syscall_name: str) -> Dict[str, Any]:
         with self.lock:
             if syscall_name in self.performance_records:
